@@ -3,6 +3,13 @@ uuid = "20fd60d1-d4af-4119-affe-637e1a748328"
 authors = ["Himanshu Gupta"]
 version = "1.0.0-DEV"
 
+[deps]
+CommonRLInterface = "d842c3ba-07a1-494f-bbec-f5741b0a3e98"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+MCTS = "e12ccd36-dcad-5f33-8774-9175229e7b33"
+POMDPs = "a93abf59-7444-517b-a68a-c42f96afdd7d"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
 [compat]
 julia = "1"
 

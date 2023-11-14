@@ -5,11 +5,11 @@ version = "1.0.0-DEV"
 
 [deps]
 CommonRLInterface = "d842c3ba-07a1-494f-bbec-f5741b0a3e98"
-DMUStudent = "a176809d-bc77-421e-b60b-7b215d415e6e"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 MCTS = "e12ccd36-dcad-5f33-8774-9175229e7b33"
 POMDPTools = "7588e00f-9cae-40de-98dc-e0c70c48cdd7"
 POMDPs = "a93abf59-7444-517b-a68a-c42f96afdd7d"
+RLAlgorithms = "346a53a9-6fe4-477e-bca6-f212bdefdafc"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]

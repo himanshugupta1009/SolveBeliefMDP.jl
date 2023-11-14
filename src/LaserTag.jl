@@ -107,15 +107,13 @@ function RL.act!(env::LaserTagBeliefMDP, a)
     #Move Robot
     new_robot_pos = bounce(env, S.robot_pos, actiondir[a])
     #Move Target
-    new_target_pos_dist = target_transition_likelihood(env,new_robot_pos)
+    new_target_pos_dist = target_transition_likelihood(env,new_robot_pos, env.target)
     new_target_pos = rand(new_target_pos_dist)
     #Sample Observation
     observation_dist = observation_likelihood(env, a, new_robot_pos, new_target_pos)
     observation = rand(observation_dist)
     #Update Belief
     bp = update_belief(env,S.belief_target,a,observation,new_robot_pos)
-    #Calculate reward
-    r = reward(env,S.belief_target,a,bp)
 
     #Modify environment state
     env.state.robot_pos[1],env.state.robot_pos[2] = new_robot_pos[1],new_robot_pos[2]
@@ -125,6 +123,9 @@ function RL.act!(env::LaserTagBeliefMDP, a)
             env.state.belief_target[i,j] = bp[i,j]
         end
     end
+
+    #Calculate reward
+    r = reward(env,S.belief_target,a,bp)
 
     #Return the reward
     return r
@@ -142,14 +143,8 @@ end
 
 function lasertag_observations(size)
     os = SVector{4,Int}[]
-    for left in 0:size[1]-1
-        for right in 0:size[1]-left-1
-            for up in 0:size[2]-1
-                for down in 0:size[2]-up-1
-                    push!(os, SVector(left, right, up, down))
-                end
-            end
-        end
+    for left in 0:size[1]-1, right in 0:size[1]-left-1, up in 0:size[2]-1, down in 0:size[2]-up-1
+        push!(os, SVector(left, right, up, down))
     end
     return os
 end

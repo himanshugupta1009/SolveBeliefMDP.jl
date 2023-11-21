@@ -3,6 +3,7 @@ using StaticArrays
 const RL = CommonRLInterface
 using POMDPTools:Uniform,SparseCat
 using Random
+using RLAlgorithms
 
 struct BeliefMDPState{T}
     robot_pos::MVector{2, Float64}
@@ -94,10 +95,16 @@ end
 
 
 #2
-RL.actions(env::ContinuousLaserTagBeliefMDP) = (lower_bound=0.0,upper_bound=2*pi)
+RL.actions(env::ContinuousLaserTagBeliefMDP) = (vx_lower=0.0,vx_upper=1.0,vy_lower=0.0,vy_upper=1.0)
+#=
+function RL.actions(wrap::ContinuousLaserTagWrapper)
+    a = RL.actions(wrap.env) = (vx_lower=0.0,vx_upper=1.0,vy_lower=0.0,vy_upper=1.0)
+    return RLAlgorithms.Box{Float32}(SA[a[:vx_lower],a[:vy_lower]], SA[a[:vx_upper],a[:vy_upper]])
+    # Box([0, 0], [1, 1])
+end
 RL.actions(wrap::ContinuousLaserTagWrapper) = RLAlgorithms.Box{Float32}(SA[actions(wrap.env)[:lower_bound]], SA[actions(wrap.env)[:upper_bound]])
-# RL.actions(wrap::ContinuousLaserTagWrapper) = RLAlgorithms.Box{Float32}(SA[0f0], SA[2f0*pi])
-
+RL.actions(wrap::ContinuousLaserTagWrapper) = RLAlgorithms.Box{Float32}(SA[0f0], SA[2f0*pi])
+=#
 
 #3
 function RL.observe(env::ContinuousLaserTagBeliefMDP)
@@ -117,7 +124,7 @@ function RL.act!(env::ContinuousLaserTagBeliefMDP, a)
     S = env.state
 
     #Move Robot
-    new_robot_pos = bounce(env, S.robot_pos, actiondir[a])
+    new_robot_pos = move_robot(env, S.robot_pos, a)
     #Move Target
     new_target_pos_dist = target_transition_likelihood(env,new_robot_pos, env.target)
     new_target_pos = rand(new_target_pos_dist)
@@ -143,6 +150,42 @@ function RL.act!(env::ContinuousLaserTagBeliefMDP, a)
     return r
 end
 
+function check_collision(m::ContinuousLaserTagBeliefMDP,old_pos,new_pos)
+
+    l = LineSegment(old_pos,new_pos)
+    delta_op = ( SVector(0,1),SVector(1,0) )
+    delta_corner = ( SVector(-1,0),SVector(0,-1) )
+
+    for o in m.obstacles
+        for delta in delta_op
+            obs_boundary = LineSegment(o,o+delta)
+            if( !isempty(intersection(l,obs_boundary)) )
+                return true
+            end
+        end
+        corner_point = o+SVector(1,1)
+        for delta in delta_corner
+            obs_boundary = LineSegment(corner_point,corner_point+delta)
+            if( !isempty(intersection(l,obs_boundary)) )
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function move_robot(m::ContinuousLaserTagBeliefMDP, pos, a)
+
+    change = SVector(a)
+    #The dot operator in clamp below specifies that apply the clamp operation to each entry of that SVector with corresponding lower and upper bounds
+    new_pos = clamp.(pos + change, SVector(1.0,1.0), SVector(1.0,1.0)+m.size)
+    println(new_pos)
+    if check_collision(m,pos,new_pos)
+        return pos
+    else
+        return new_pos
+    end
+end
 
 function bounce(m::ContinuousLaserTagBeliefMDP, pos, change)
     new = clamp.(pos + change, SVector(1,1), m.size)

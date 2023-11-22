@@ -126,6 +126,8 @@ function RL.act!(env::ContinuousLaserTagBeliefMDP, a)
     #Sample Observation
     observation_dist = observation_likelihood(env, a, new_robot_pos, new_target_pos)
     observation = rand(observation_dist)
+    display(observation_dist)
+    println(observation)
     #Update Belief
     bp = update_belief(env,S.belief_target,a,observation,new_robot_pos)
 
@@ -198,7 +200,7 @@ function lasertag_observations(size)
     return os
 end
 
-function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, robot_pos, oldtarget)
+function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, continuous_robot_pos, oldtarget)
     # newrobot = bounce(m, s.robot, actiondir[a])
 
     # if isterminal(m, s)
@@ -210,7 +212,7 @@ function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, robot_pos,
 
     targets = [oldtarget]
     targetprobs = Float64[0.0]
-    newrobot = SVector( Int(floor(robot_pos[1])),Int(floor(robot_pos[2])) )
+    newrobot = SVector( Int(floor(continuous_robot_pos[1])),Int(floor(continuous_robot_pos[2])) )
     if sum(abs, newrobot - oldtarget) > 2 # move randomly
         for change in (SVector(-1,0), SVector(1,0), SVector(0,1), SVector(0,-1))
             newtarget = bounce(m, oldtarget, change)

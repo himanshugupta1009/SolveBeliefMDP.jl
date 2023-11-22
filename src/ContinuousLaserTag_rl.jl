@@ -1,9 +1,10 @@
 using CommonRLInterface
 using StaticArrays
 const RL = CommonRLInterface
-using POMDPTools:Uniform,SparseCat
+import POMDPTools:Uniform,SparseCat
 using Random
 using RLAlgorithms
+import LazySets:LineSegment,intersection
 
 struct BeliefMDPState{T}
     robot_pos::MVector{2, Float64}
@@ -34,7 +35,7 @@ function Base.in(s::Union{MVector{2,Float64},SVector{2,Float64}}, o::Set{SVector
     return SVector(grid_x,grid_y) in o
 end
 
-function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(20))
+function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(29))
     obstacles = Set{SVector{2, Int}}()
     blocked = falses(size...)
     while length(obstacles) < n_obstacles
@@ -54,10 +55,8 @@ function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::Abstract
     end
 
     r = MVector(1+rand()*size[1], 1+rand()*size[2])
-    # r = MVector(Float64(rand(rng, 1:size[1])), Float64(rand(rng, 1:size[2])))
-    while r in obstacles
+    while r in obstacles || r in t
         r = MVector(1+rand()*size[1], 1+rand()*size[2])
-        # r = MVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
     end
 
     b = initialbelief(size,obstacles)
@@ -73,10 +72,8 @@ function RL.reset!(env::ContinuousLaserTagBeliefMDP)
     while t in env.obstacles
         t = SVector(rand(1:env.size[1]), rand(1:env.size[2]))
     end
-    # r = SVector(rand(1:env.size[1]), rand(1:env.size[2]))
     r = SVector(1+rand()*env.size[1], 1+rand()*env.size[2])
     while r in env.obstacles || r in t
-        # r = SVector(rand(1:env.size[1]), rand(1:env.size[2]))
         r = SVector(1+rand()*env.size[1], 1+rand()*env.size[2])
     end
 
@@ -86,10 +83,8 @@ function RL.reset!(env::ContinuousLaserTagBeliefMDP)
 
     #Reset belief over target to uniform belief
     b = initialbelief(env.size,env.obstacles)
-    for i in 1:env.size[1]
-        for j in 1:env.size[2]
-            env.state.belief_target[i,j] = b[i,j]
-        end
+    for i in 1:env.size[1],j in 1:env.size[2]
+        env.state.belief_target[i,j] = b[i,j]
     end
 end
 
@@ -126,7 +121,7 @@ function RL.act!(env::ContinuousLaserTagBeliefMDP, a)
     #Move Robot
     new_robot_pos = move_robot(env, S.robot_pos, a)
     #Move Target
-    new_target_pos_dist = target_transition_likelihood(env,new_robot_pos, env.target)
+    new_target_pos_dist = target_transition_likelihood(env,new_robot_pos,env.target)
     new_target_pos = rand(new_target_pos_dist)
     #Sample Observation
     observation_dist = observation_likelihood(env, a, new_robot_pos, new_target_pos)
@@ -137,10 +132,8 @@ function RL.act!(env::ContinuousLaserTagBeliefMDP, a)
     #Modify environment state
     env.state.robot_pos[1],env.state.robot_pos[2] = new_robot_pos[1],new_robot_pos[2]
     env.target[1],env.target[2] = new_target_pos[1],new_target_pos[2]
-    for i in 1:env.size[1]
-        for j in 1:env.size[2]
-            env.state.belief_target[i,j] = bp[i,j]
-        end
+    for i in 1:env.size[1],j in 1:env.size[2]
+        env.state.belief_target[i,j] = bp[i,j]
     end
 
     #Calculate reward
@@ -175,12 +168,13 @@ function check_collision(m::ContinuousLaserTagBeliefMDP,old_pos,new_pos)
 end
 
 function move_robot(m::ContinuousLaserTagBeliefMDP, pos, a)
-
     change = SVector(a)
     #The dot operator in clamp below specifies that apply the clamp operation to each entry of that SVector with corresponding lower and upper bounds
-    new_pos = clamp.(pos + change, SVector(1.0,1.0), SVector(1.0,1.0)+m.size)
-    println(new_pos)
-    if check_collision(m,pos,new_pos)
+    #new_pos = clamp.(pos + change, SVector(1.0,1.0), SVector(1.0,1.0)+m.size)
+    new_pos = pos + change
+    if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
+        new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0  ||
+        check_collision(m,pos,new_pos) )
         return pos
     else
         return new_pos
@@ -204,7 +198,7 @@ function lasertag_observations(size)
     return os
 end
 
-function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, newrobot, oldtarget)
+function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, robot_pos, oldtarget)
     # newrobot = bounce(m, s.robot, actiondir[a])
 
     # if isterminal(m, s)
@@ -216,6 +210,7 @@ function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, newrobot, 
 
     targets = [oldtarget]
     targetprobs = Float64[0.0]
+    newrobot = SVector( Int(floor(robot_pos[1])),Int(floor(robot_pos[2])) )
     if sum(abs, newrobot - oldtarget) > 2 # move randomly
         for change in (SVector(-1,0), SVector(1,0), SVector(0,1), SVector(0,-1))
             newtarget = bounce(m, oldtarget, change)
@@ -227,7 +222,9 @@ function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, newrobot, 
             end
         end
     else # move away
-        away = sign.(oldtarget - m.state.robot_pos)
+        c_old_robot_pos = m.state.robot_pos #Continuous
+        d_old_robot_pos = SVector( Int(floor(c_old_robot_pos[1])),Int(floor(c_old_robot_pos[2])) ) #Discrete
+        away = sign.(oldtarget - d_old_robot_pos) #Shouldn't this be the new robot position and not the old one?
         if sum(abs, away) == 2 # diagonal
             away = away - SVector(0, away[2]) # preference to move in x direction
         end
@@ -246,7 +243,9 @@ function target_transition_likelihood(m::ContinuousLaserTagBeliefMDP, newrobot, 
     return SparseCat(target_states, probs)
 end
 
-function observation_likelihood(m::ContinuousLaserTagBeliefMDP, a, robot_pos, target_pos)
+function observation_likelihood(m::ContinuousLaserTagBeliefMDP, a, continuous_robot_pos, target_pos)
+
+    robot_pos = SVector( Int(floor(continuous_robot_pos[1])),Int(floor(continuous_robot_pos[2])) )
     left = robot_pos[1]-1
     right = m.size[1]-robot_pos[1]
     up = m.size[2]-robot_pos[2]
@@ -315,7 +314,7 @@ function update_belief(m::ContinuousLaserTagBeliefMDP,b,a,o,robot_pos)
 end
 
 function reward(env::ContinuousLaserTagBeliefMDP,b,a,bp)
-    if(env.target == env.state.robot_pos)
+    if(env.state.robot_pos in env.target)
         return 100.0
     elseif a == :measure
         return -2.0

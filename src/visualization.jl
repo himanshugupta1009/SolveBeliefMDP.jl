@@ -1,3 +1,5 @@
+using Plots
+
 square(x,y,r) = Shape(x .+ [0,r,r,0], y .+ [0,0,r,r])
 
 function plot_lasertag(m::ContinuousLaserTagBeliefMDP)

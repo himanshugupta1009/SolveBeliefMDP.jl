@@ -1,6 +1,6 @@
 module LaserTag
 
-include("LaserTag_rl.jl")
+# include("LaserTag_rl.jl")
 
 using RLAlgorithms.Spaces: Discrete, Box
 using RLAlgorithms.CommonRLExtensions

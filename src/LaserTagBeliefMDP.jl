@@ -1,10 +1,10 @@
 using CommonRLInterface
 using StaticArrays
-const RL = CommonRLInterface
 using POMDPTools:Uniform,SparseCat
 using Random
 import LazySets:LineSegment,intersection
 include("BeliefMDP.jl")
+const RL = CommonRLInterface
 
 struct BeliefMDPState{S,T}
     robot_pos::S
@@ -98,6 +98,10 @@ function change_belief_format(b::MMatrix)
     return SVector(b...)
 end
 
+function change_belief_format(b::PFBelief)
+    particles = b.collection.particles
+    return SVector(vcat(particles...))
+end
 
 #4: Define RL.act!
 function RL.act!(env::LaserTagBeliefMDP, a)

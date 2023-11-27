@@ -50,14 +50,6 @@ end
 
 
 #Define Constructors
-function lasertag_observations(size)
-    os = SVector{4,Int}[]
-    for left in 0:size[1]-1, right in 0:size[1]-left-1, up in 0:size[2]-1, down in 0:size[2]-up-1
-        push!(os, SVector(left, right, up, down))
-    end
-    return os
-end
-
 function DiscreteLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particles=100, rng::AbstractRNG=Random.MersenneTwister(20))
 
     #Generate Obstacles

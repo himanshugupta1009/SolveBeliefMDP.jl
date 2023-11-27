@@ -15,7 +15,6 @@ struct LaserTagBeliefMDP{S} <: BeliefMDP
     size::SVector{2, Int}
     obstacles::Set{SVector{2, Int}}
     blocked::BitArray{2}
-    obsindices::Array{Union{Nothing,Int}, 4}
     target::MVector{2, Int}
     state::S
 end
@@ -55,6 +54,9 @@ function RL.reset!(env::LaserTagBeliefMDP)
     #Reset belief over target to uniform belief
     b = resetbelief(env)
     set_belief!(env,b)
+
+    #This empty return statement is put to prevent the reset! function from printing anything on the REPL
+    return
 end
 
 function sample_pos(env::LaserTagBeliefMDP,r::MVector{2,Int64})
@@ -92,16 +94,6 @@ function RL.observe(env::LaserTagBeliefMDP)
     return vcat(s.robot_pos, formatted_b)
 end
 
-function change_belief_format(b::MMatrix)
-    #Transpose is taken because vcat concatenates using columns and not rows, while we want to concatenate rows
-    b_transpose = b'
-    return SVector(b...)
-end
-
-function change_belief_format(b::PFBelief)
-    particles = b.collection.particles
-    return SVector(vcat(particles...))
-end
 
 #4: Define RL.act!
 function RL.act!(env::LaserTagBeliefMDP, a)

@@ -36,11 +36,6 @@ function DiscreteLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRN
         blocked[obs...] = true
     end
 
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
-    for (ind, o) in enumerate(lasertag_observations(size))
-        obsindices[(o.+1)...] = ind
-    end
-
     #Initialize target
     t = MVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
     while t in obstacles
@@ -58,7 +53,7 @@ function DiscreteLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRN
     b = MMatrix{size[1],size[2],Float64}(b)
     initial_state = BeliefMDPState(r,b)
 
-    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, obsindices, t, initial_state)
+    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, t, initial_state)
 end
 
 function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(29))
@@ -68,11 +63,6 @@ function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::Abstract
         obs = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
         push!(obstacles, obs)
         blocked[obs...] = true
-    end
-
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
-    for (ind, o) in enumerate(lasertag_observations(size))
-        obsindices[(o.+1)...] = ind
     end
 
     t = MVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
@@ -89,7 +79,7 @@ function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::Abstract
     b = MMatrix{size[1],size[2],Float64}(b)
     initial_state = BeliefMDPState(r,b)
 
-    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, obsindices, t, initial_state)
+    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, t, initial_state)
 end
 
 function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,robot_pos)
@@ -117,8 +107,57 @@ function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,robot_pos)
     return bp/sum(bp)
 end
 
+function change_belief_format(b::MMatrix)
+    #Transpose is taken because vcat concatenates using columns and not rows, while we want to concatenate rows
+    b_transpose = b'
+    return SVector(b...)
+end
+
 function set_belief!(env::LaserTagBeliefMDP,new_b::MMatrix)
     for i in 1:env.size[1], j in 1:env.size[2]
         env.state.belief_target[i,j] = new_b[i,j]
     end
 end
+
+
+#=
+d = DiscreteLaserTagBeliefMDP();
+d.state.robot_pos
+d.state.belief_target
+d.target
+
+RL.observe(d)
+RL.terminated(d)
+RL.actions(d)
+
+rng = MersenneTwister(19)
+for i in 1:100
+    a = rand(rng, actions(d))
+    RL.act!(d,a)
+end
+
+RL.reset!(d)
+d.state.robot_pos
+d.state.belief_target
+d.target
+
+c = ContinuousLaserTagBeliefMDP();
+c.state.robot_pos
+c.state.belief_target
+c.target
+
+RL.observe(c)
+RL.terminated(c)
+RL.actions(c)
+
+rng = MersenneTwister(19)
+for i in 1:100
+    a = ( rand(rng), rand(rng) )
+    RL.act!(c,a)
+end
+
+RL.reset!(c)
+c.state.robot_pos
+c.state.belief_target
+c.target
+=#

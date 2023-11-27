@@ -69,11 +69,6 @@ function DiscreteLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particles
         blocked[obs...] = true
     end
 
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
-    for (ind, o) in enumerate(lasertag_observations(size))
-        obsindices[(o.+1)...] = ind
-    end
-
     #Initialize target
     t = MVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
     while t in obstacles
@@ -94,7 +89,7 @@ function DiscreteLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particles
 
     initial_state = BeliefMDPState(r,pfb)
 
-    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, obsindices, t, initial_state)
+    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, t, initial_state)
 end
 
 function ContinuousLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particles=100, rng::AbstractRNG=Random.MersenneTwister(29))
@@ -104,11 +99,6 @@ function ContinuousLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particl
         obs = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
         push!(obstacles, obs)
         blocked[obs...] = true
-    end
-
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
-    for (ind, o) in enumerate(lasertag_observations(size))
-        obsindices[(o.+1)...] = ind
     end
 
     t = MVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
@@ -128,7 +118,7 @@ function ContinuousLaserTagPFBeliefMDP(;size=(10, 7), n_obstacles=9, num_particl
 
     initial_state = BeliefMDPState(r,pfb)
 
-    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, obsindices, t, initial_state)
+    return LaserTagBeliefMDP(SVector(size), obstacles, blocked, t, initial_state)
 end
 
 function update_belief(m::LaserTagBeliefMDP,b::PFBelief,a,o,robot_pos)
@@ -139,7 +129,55 @@ function update_belief(m::LaserTagBeliefMDP,b::PFBelief,a,o,robot_pos)
     return new_particles
 end
 
+function change_belief_format(b::PFBelief)
+    particles = b.collection.particles
+    return SVector(vcat(particles...))
+end
+
 function set_belief!(env::LaserTagBeliefMDP,new_b::ParticleCollection)
     new_particles = new_b.particles
     env.state.belief_target.collection.particles = new_particles
 end
+
+
+#=
+d = DiscreteLaserTagPFBeliefMDP();
+d.state.robot_pos
+d.state.belief_target
+d.target
+
+RL.observe(d)
+RL.terminated(d)
+RL.actions(d)
+
+rng = MersenneTwister(19)
+for i in 1:100
+    a = rand(rng, actions(d))
+    RL.act!(d,a)
+end
+
+RL.reset!(d)
+d.state.robot_pos
+d.state.belief_target
+d.target
+
+c = ContinuousLaserTagPFBeliefMDP();
+c.state.robot_pos
+c.state.belief_target
+c.target
+
+RL.observe(c)
+RL.terminated(c)
+RL.actions(c)
+
+rng = MersenneTwister(19)
+for i in 1:100
+    a = ( rand(rng), rand(rng) )
+    RL.act!(c,a)
+end
+
+RL.reset!(c)
+c.state.robot_pos
+c.state.belief_target
+c.target
+=#

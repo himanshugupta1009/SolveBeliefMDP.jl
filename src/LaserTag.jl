@@ -11,7 +11,7 @@ export LaserTagWrapper, LaserTagBeliefMDP
 
 @with_kw struct LaserTagWrapper{T<:LaserTagBeliefMDP} <: Wrappers.AbstractWrapper
     env::T = LaserTagBeliefMDP()
-    steps::MVector{1,Int} = @MVector [0]
+    steps::MVector{1,Int} = @MVector [0] #HG: Ask Jackson what @MVector even means!
     max_steps::Int = 500
 end
 

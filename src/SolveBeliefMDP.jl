@@ -1,6 +1,6 @@
 module SolveBeliefMDP
 
-include("LaserTag.jl")
+include("LaserTagModule.jl")
 using .LaserTag
 export LaserTagBeliefMDP, LaserTagWrapper
 

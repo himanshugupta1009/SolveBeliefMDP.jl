@@ -118,7 +118,7 @@ function RL.act!(env::LaserTagBeliefMDP, a)
     set_belief!(env,bp)
 
     #Calculate reward
-    r = reward(env,S.belief_target,a,bp)
+    r = get_reward(env,S.belief_target,a,bp)
     #Return the reward
     return r
 end
@@ -259,7 +259,7 @@ function get_observation(env,new_robot_pos,new_target_pos,a)
     return observation
 end
 
-function reward(env::LaserTagBeliefMDP,b,a,bp)
+function get_reward(env::LaserTagBeliefMDP,b,a,bp)
     if(env.state.robot_pos in env.target)
         return 100.0
     elseif a == :measure

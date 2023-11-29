@@ -200,16 +200,18 @@ end
 
 #=
 TBD
+using ARDESPOT
 
 function get_actions(m)
     return SVector( (1.0,0.0), (1.0,1.0), (0.0,1.0), (-1.0,1.0), (-1.0,0.0), (-1.0,-1.0), (0.0,-1.0), (1.0,-1.0) )
 end
-POMDPs.action(m::LaserTagPOMDP{SVector{2, Float64}}) = get_actions(m)
+POMDPs.actions(m::LaserTagPOMDP{SVector{2, Float64}}) = get_actions(m)
 POMDPs.discount(m::LaserTagPOMDP{SVector{2, Float64}}) = 0.95
 POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Float64}}, s) = s.robot in s.target
 
 function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Float64}},s::LTState,a::Tuple,rng::AbstractRNG)
 
+    println("HG: ",s)
     curr_robot = s.robot
     curr_target = s.target
 
@@ -232,6 +234,22 @@ end
 
 qmdp_sol = QMDPSolver(max_iterations=20,belres=1e-3)
 qmdp_planner = solve(qmdp_sol,c)
-lower = DefaultPolicyLB(rand(actions(c)));
-upper_bound = 100.0
+
+function lower(pomdp, b::ScenarioBelief)
+    return 0.0
+end
+function upper(pomdp, b::ScenarioBelief)
+    return 100.0
+end
+
+DES_solver = DESPOTSolver(
+    bounds = IndependentBounds(lower, upper, check_terminal=true, consistency_fix_thresh=0.1),
+    K = 50,
+    T_max = 5.0,
+    default_action = :measure
+)
+planner = solve(DES_solver, c)
+b = initialstate(c)
+a = action(planner,b)
+
 =#

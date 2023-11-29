@@ -4,6 +4,7 @@ authors = ["Himanshu Gupta"]
 version = "1.0.0-DEV"
 
 [deps]
+ARDESPOT = "d96c9ae4-3372-47d5-8a88-316ae77be8cf"
 CommonRLInterface = "d842c3ba-07a1-494f-bbec-f5741b0a3e98"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LazySets = "b4f0291d-fe17-52bc-9479-3d1a343d9043"

@@ -36,7 +36,12 @@ function DiscreteLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Ra
         push!(obstacles, obs)
         blocked[obs...] = true
     end
+
+    #Initialize Robot
     robot_init = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
+    while robot_init in obstacles
+        robot_init = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
+    end
 
     obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
     for (ind, o) in enumerate(lasertag_observations(size))
@@ -46,15 +51,14 @@ function DiscreteLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Ra
     LaserTagPOMDP(SVector(size), obstacles, blocked, robot_init, obsindices)
 end
 
-POMDPs.actions(m::LaserTagPOMDP{SVector{2, Int64}}) = (:left, :right, :up, :down, :measure)
 POMDPs.states(m::LaserTagPOMDP{SVector{2, Int64}}) = vec(collect(LTState(SVector(c[1],c[2]), SVector(c[3], c[4])) for c in Iterators.product(1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2])))
+POMDPs.actions(m::LaserTagPOMDP{SVector{2, Int64}}) = (:left, :right, :up, :down, :measure)
 POMDPs.observations(m::LaserTagPOMDP{SVector{2, Int64}}) = lasertag_observations(m.size)
 POMDPs.discount(m::LaserTagPOMDP{SVector{2, Int64}}) = 0.95
 POMDPs.stateindex(m::LaserTagPOMDP{SVector{2, Int64}}, s) = LinearIndices((1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2]))[s.robot..., s.target...]
 POMDPs.actionindex(m::LaserTagPOMDP{SVector{2, Int64}}, a) = actionind[a]
 POMDPs.obsindex(m::LaserTagPOMDP{SVector{2, Int64}}, o) = m.obsindices[(o.+1)...]::Int
 POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Int64}}, s) = s.robot == s.target
-POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Float64}}, s) = s.robot in s.target
 
 const actiondir = Dict(:left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0))
 const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :measure=>5)
@@ -134,10 +138,72 @@ observation(d,:right,s)
 initialstate(d)
 reward(d,s,:right)
 
+b = initialstate(d)
 
 using QMDP
 solver = QMDPSolver(max_iterations=20,belres=1e-3,verbose=true)
 policy = solve(solver, d);
-b = initialstate(d)
 a = action(policy,b)
+
+using ARDESPOT
+# DES_solver = DESPOTSolver(bounds=(-20.0, 0.0))
+# planner = solve(DES_solver,d)
+
+lower = DefaultPolicyLB(solve(QMDPSolver(), d));
+
+function upper(m, b)
+    # dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
+    # closing_steps = div(dist, 2)
+    # if closing_steps > 1
+    #     return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
+    # else
+    #     return 100.0
+    # end
+    return 100.0
+end
+
+DES_solver = DESPOTSolver(
+    bounds = IndependentBounds(lower, upper, check_terminal=true, consistency_fix_thresh=0.1),
+    K = 50,
+    T_max = 0.2,
+    default_action = :measure
+)
+
+planner = solve(DES_solver, d);
+a = action(planner,b)
+=#
+
+
+function ContinuousLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(20))
+    obstacles = Set{SVector{2, Int}}()
+    blocked = falses(size...)
+    while length(obstacles) < n_obstacles
+        obs = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
+        push!(obstacles, obs)
+        blocked[obs...] = true
+    end
+
+    #Initialize Robot
+    robot_init = SVector(1+rand(rng)*size[1], 1+rand(rng)*size[2])
+    while robot_init in obstacles
+        robot_init = SVector(1+rand(rng)*size[1], 1+rand(rng)*size[2])
+    end
+
+    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
+    for (ind, o) in enumerate(lasertag_observations(size))
+        obsindices[(o.+1)...] = ind
+    end
+
+    LaserTagPOMDP(SVector(size), obstacles, blocked, robot_init, obsindices)
+end
+
+#=
+TBD
+
+POMDPs.action(LaserTagPOMDP{SVector{2, Float64}}) =
+POMDPs.discount(LaserTagPOMDP{SVector{2, Float64}})
+POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Float64}}, s) = s.robot in s.target
+POMDPs.gen
+lower_bound
+upper_bound
 =#

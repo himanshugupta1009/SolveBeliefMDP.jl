@@ -1,3 +1,6 @@
+using StaticArrays
+import POMDPTools:Uniform,SparseCat,weighted_iterator
+
 function Base.in(s::Union{MVector{2,Int},SVector{2,Int}}, o::Union{SVector{2, Int},MVector{2, Int}})
     return s[1]==o[1] && s[2]==o[2]
 end
@@ -63,11 +66,11 @@ function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a)
     end
 end
 
-function target_transition_likelihood(m, robot_pos, oldtarget)
+function target_transition_likelihood(m,oldrobot_pos,newrobot_pos,oldtarget)
 
     targets = [oldtarget]
     targetprobs = Float64[0.0]
-    newrobot = SVector( Int(floor(robot_pos[1])),Int(floor(robot_pos[2])) )
+    newrobot = SVector( Int(floor(newrobot_pos[1])),Int(floor(newrobot_pos[2])) )
     if sum(abs, newrobot - oldtarget) > 2 # move randomly
         for change in (SVector(-1,0), SVector(1,0), SVector(0,1), SVector(0,-1))
             newtarget = bounce(m, oldtarget, change)
@@ -79,8 +82,8 @@ function target_transition_likelihood(m, robot_pos, oldtarget)
             end
         end
     else # move away
-        old_robot_pos = SVector( Int(floor(m.state.robot_pos[1])),Int(floor(m.state.robot_pos[2])) )
-        away = sign.(oldtarget - old_robot_pos)
+        oldrobot = SVector( Int(floor(oldrobot_pos[1])),Int(floor(oldrobot_pos[2])) )
+        away = sign.(oldtarget - oldrobot)
         if sum(abs, away) == 2 # diagonal
             away = away - SVector(0, away[2]) # preference to move in x direction
         end

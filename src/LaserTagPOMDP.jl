@@ -1,8 +1,6 @@
 using POMDPs
-using StaticArrays
 using Random
-import POMDPTools:SparseCat
-include("LaserTagProblem.jl")
+include("LaserTag.jl")
 
 struct LTState{S,T}
     robot::S
@@ -74,7 +72,7 @@ function POMDPs.transition(m::LaserTagPOMDP, s, a)
     end
 
     oldtarget = s.target
-    target_T = target_transition_likelihood(m,newrobot,oldtarget)
+    target_T = target_transition_likelihood(m,oldrobot,newrobot,oldtarget)
 
     states = LTState[]
     probs = Float64[]
@@ -94,9 +92,15 @@ function POMDPs.observation(m::LaserTagPOMDP, a, sp)
     return O_likelihood
 end
 
-# This function needs to be changed. 1/70 to 1/61
-function POMDPs.initialstate(m::LaserTagPOMDP{SVector{2, Int64}})
-    return Uniform(LTState(m.robot_init, SVector(x, y)) for x in 1:m.size[1], y in 1:m.size[2])
+function POMDPs.initialstate(m::LaserTagPOMDP)
+    states = LTState[]
+    for x in 1:m.size[1],y in 1:m.size[2]
+        target_state = SVector(x,y)
+        if(!(target_state in m.obstacles))
+            push!(states,LTState(m.robot_init,target_state))
+        end
+    end
+    return Uniform(states)
 end
 
 
@@ -115,8 +119,25 @@ end
 function POMDPs.reward(m, s, a)
     r = 0.0
     td = transition(m, s, a)
+    #weighted_iterator is a function provided by POMDPTools.jl
     for (sp, w) in weighted_iterator(td)
         r += w*reward(m, s, a, sp)
     end
     return r
 end
+
+#=
+d = DiscreteLaserTagPOMDP();
+s = LTState( SVector(5,5), SVector(1,1) )
+transition(d,s,:right)
+observation(d,:right,s)
+initialstate(d)
+reward(d,s,:right)
+
+
+using QMDP
+solver = QMDPSolver(max_iterations=20,belres=1e-3,verbose=true)
+policy = solve(solver, d);
+b = initialstate(d)
+a = action(policy,b)
+=#

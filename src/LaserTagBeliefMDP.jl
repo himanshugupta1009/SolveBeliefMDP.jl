@@ -1,10 +1,8 @@
 using CommonRLInterface
-using StaticArrays
-using POMDPTools:Uniform,SparseCat
 using Random
 import LazySets:LineSegment,intersection
-include("LaserTagProblem.jl")
 include("BeliefMDP.jl")
+include("LaserTag.jl")
 const RL = CommonRLInterface
 
 struct BeliefMDPState{S,T}
@@ -33,7 +31,7 @@ function RL.reset!(env::LaserTagBeliefMDP)
     end
 
     #Reset Robot and target's initial positions
-    env.target[1],env.target[1] = t[1],t[2]
+    env.target[1],env.target[2] = t[1],t[2]
     env.state.robot_pos[1],env.state.robot_pos[2] = r[1],r[2]
 
     #Reset belief over target to uniform belief
@@ -86,11 +84,12 @@ function RL.act!(env::LaserTagBeliefMDP, a)
     Move Robot and Target; Sample Obsevation; Update Belief
     =#
     S = env.state
+    old_robot_pos = S.robot_pos
 
     #Move Robot
     new_robot_pos = move_robot(env, S.robot_pos, a)
     #Move Target
-    new_target_pos = get_new_target_pos(env,new_robot_pos)
+    new_target_pos = get_new_target_pos(env,old_robot_pos,new_robot_pos)
     #Sample Observation
     o = get_observation(env,new_robot_pos,new_target_pos,a)
     #Get Updated Belief
@@ -107,8 +106,8 @@ function RL.act!(env::LaserTagBeliefMDP, a)
     return r
 end
 
-function get_new_target_pos(env,new_robot_pos)
-    new_target_pos_dist = target_transition_likelihood(env,new_robot_pos, env.target)
+function get_new_target_pos(env,old_robot_pos,new_robot_pos)
+    new_target_pos_dist = target_transition_likelihood(env,old_robot_pos,new_robot_pos,env.target)
     new_target_pos = rand(new_target_pos_dist)
     return new_target_pos
 end

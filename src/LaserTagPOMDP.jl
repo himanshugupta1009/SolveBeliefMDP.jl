@@ -1,4 +1,5 @@
 using POMDPs
+import POMDPPolicies:RandomPolicy
 using Random
 include("LaserTag.jl")
 
@@ -166,7 +167,7 @@ end
 DES_solver = DESPOTSolver(
     bounds = IndependentBounds(lower, upper, check_terminal=true, consistency_fix_thresh=0.1),
     K = 50,
-    T_max = 0.2,
+    T_max = 1.2,
     default_action = :measure
 )
 
@@ -198,10 +199,6 @@ function ContinuousLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=
     LaserTagPOMDP(SVector(size), obstacles, blocked, robot_init, obsindices)
 end
 
-#=
-TBD
-using ARDESPOT
-
 function get_actions(m)
     return SVector( (1.0,0.0), (1.0,1.0), (0.0,1.0), (-1.0,1.0), (-1.0,0.0), (-1.0,-1.0), (0.0,-1.0), (1.0,-1.0) )
 end
@@ -232,23 +229,28 @@ function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Float64}},s::LTState,a::Tuple,rn
     return (sp = new_state,o=O,r=r)
 end
 
+
+#=
+TBD
+using ARDESPOT
 qmdp_sol = QMDPSolver(max_iterations=20,belres=1e-3)
 qmdp_planner = solve(qmdp_sol,c)
 
-function lower(pomdp, b::ScenarioBelief)
+function lb_policy(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
     return 0.0
+    return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
 end
-function upper(pomdp, b::ScenarioBelief)
+function upper(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
     return 100.0
 end
 
 DES_solver = DESPOTSolver(
-    bounds = IndependentBounds(lower, upper, check_terminal=true, consistency_fix_thresh=0.1),
-    K = 50,
+    bounds = IndependentBounds(lb_policy, upper, check_terminal=true, consistency_fix_thresh=0.1),
+    K = 100,
+    D = 20,
     T_max = 5.0,
-    default_action = :measure
 )
-planner = solve(DES_solver, c)
+planner = solve(DES_solver, c);
 b = initialstate(c)
 a = action(planner,b)
 

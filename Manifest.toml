@@ -2,7 +2,7 @@
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "5fde48c0ad539dc9fa66fae1fbf8002a79c76fd6"
+project_hash = "4e5555319dd21469c424a9459ef66a333028eb85"
 
 [[deps.ARDESPOT]]
 deps = ["BasicPOMCP", "BeliefUpdaters", "CPUTime", "D3Trees", "POMDPModelTools", "POMDPs", "Parameters", "ParticleFilters", "Printf", "Random"]
@@ -1204,6 +1204,12 @@ deps = ["CommonRLInterface", "Distributions", "LinearAlgebra", "POMDPLinter", "P
 git-tree-sha1 = "36d32d62e036ae8ebb9b8efe9e8658f902815700"
 uuid = "08074719-1b2a-587c-a292-00f91cc44415"
 version = "0.3.13"
+
+[[deps.POMDPPolicies]]
+deps = ["Distributions", "LinearAlgebra", "POMDPTools", "POMDPs", "Parameters", "Random", "Reexport", "SparseArrays", "StatsBase"]
+git-tree-sha1 = "bd72fbfea89a64946963518aa53097e2a1233c59"
+uuid = "182e52fb-cfd0-5e46-8c26-fd0667c990f4"
+version = "0.4.3"
 
 [[deps.POMDPTools]]
 deps = ["CommonRLInterface", "DataFrames", "Distributed", "Distributions", "LinearAlgebra", "NamedTupleTools", "POMDPLinter", "POMDPs", "Parameters", "ProgressMeter", "Random", "Reexport", "SparseArrays", "Statistics", "StatsBase", "Tricks", "UnicodePlots"]

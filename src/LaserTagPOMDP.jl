@@ -111,7 +111,7 @@ end
 function POMDPs.reward(m::LaserTagPOMDP, s, a, sp)
     if isterminal(m, s)
         return 0.0
-    elseif sp.robot == sp.target
+    elseif sp.robot in sp.target
         return 100.0
     elseif a == :measure
         return -2.0
@@ -120,7 +120,8 @@ function POMDPs.reward(m::LaserTagPOMDP, s, a, sp)
     end
 end
 
-function POMDPs.reward(m, s, a)
+
+function POMDPs.reward(m::LaserTagPOMDP, s, a)
     r = 0.0
     td = transition(m, s, a)
     #weighted_iterator is a function provided by POMDPTools.jl
@@ -200,10 +201,37 @@ end
 #=
 TBD
 
-POMDPs.action(LaserTagPOMDP{SVector{2, Float64}}) =
-POMDPs.discount(LaserTagPOMDP{SVector{2, Float64}})
+function get_actions(m)
+    return SVector( (1.0,0.0), (1.0,1.0), (0.0,1.0), (-1.0,1.0), (-1.0,0.0), (-1.0,-1.0), (0.0,-1.0), (1.0,-1.0) )
+end
+POMDPs.action(m::LaserTagPOMDP{SVector{2, Float64}}) = get_actions(m)
+POMDPs.discount(m::LaserTagPOMDP{SVector{2, Float64}}) = 0.95
 POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Float64}}, s) = s.robot in s.target
-POMDPs.gen
-lower_bound
-upper_bound
+
+function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Float64}},s::LTState,a::Tuple,rng::AbstractRNG)
+
+    curr_robot = s.robot
+    curr_target = s.target
+
+    #Move Robot
+    new_robot = move_robot(m,curr_robot,a)
+
+    #Move Target
+    T_target = target_transition_likelihood(m,curr_robot,new_robot,curr_target)
+    new_target = rand(rng, T_target)
+
+    #Get Observation
+    Z_target = observation_likelihood(m,a,new_robot,new_target)
+    O = rand(rng,Z_target)
+
+    new_state = LTState(new_robot,new_target)
+    r = reward(m,s,a,new_state)
+
+    return (sp = new_state,o=O,r=r)
+end
+
+qmdp_sol = QMDPSolver(max_iterations=20,belres=1e-3)
+qmdp_planner = solve(qmdp_sol,c)
+lower = DefaultPolicyLB(rand(actions(c)));
+upper_bound = 100.0
 =#

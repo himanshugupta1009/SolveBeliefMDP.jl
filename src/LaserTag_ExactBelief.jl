@@ -1,6 +1,5 @@
 include("LaserTagBeliefMDP.jl")
 
-
 function initialbelief(size, obstacles)
     num_valid_states = prod(size) - length(obstacles)
     b = ones(size...)
@@ -74,12 +73,12 @@ function ContinuousLaserTagBeliefMDP(;size=(10, 7), n_obstacles=9, rng::Abstract
     return LaserTagBeliefMDP(SVector(size), obstacles, blocked, t, initial_state)
 end
 
-function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,robot_pos)
-    # bp = zeros(m.size...)
+function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,newrobot)
     bp = MMatrix{m.size[1],m.size[2]}(zeros(m.size...))
+    oldrobot = m.state.robot_pos
     for i in 1:m.size[1], j in 1:m.size[2]
         b_s = b[i,j]
-        T = target_transition_likelihood(m,robot_pos,SVector(i,j))
+        T = target_transition_likelihood(m,oldrobot,newrobot,SVector(i,j))
         for k in 1:length(T.vals)
             @assert !isnan(T.probs[k])
             bp[T.vals[k]...] += b_s*T.probs[k]
@@ -87,7 +86,7 @@ function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,robot_pos)
     end
 
     for i in 1:m.size[1], j in 1:m.size[2]
-        O = observation_likelihood(m,a,robot_pos,SVector(i,j))
+        O = observation_likelihood(m,a,newrobot,SVector(i,j))
         index = findfirst(x -> x==o,O.vals)
         if(isnothing(index))
             bp[i,j] = 0.0
@@ -124,7 +123,7 @@ RL.actions(d)
 
 rng = MersenneTwister(19)
 for i in 1:100
-    a = rand(rng, actions(d))
+    a = rand(rng, RL.actions(d))
     RL.act!(d,a)
 end
 

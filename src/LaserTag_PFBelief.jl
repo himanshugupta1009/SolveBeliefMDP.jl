@@ -2,9 +2,10 @@ include("LaserTagBeliefMDP.jl")
 using ParticleFilters
 
 function particle_propogation(x,u,rng)
-    m,robot_pos,a = u
+    m,newrobot_pos,a = u
+    oldrobot_pos = m.state.robot_pos
     target_pos = SVector(x)
-    T = target_transition_likelihood(m,robot_pos,target_pos)
+    T = target_transition_likelihood(m,oldrobot_pos,newrobot_pos,target_pos)
     new_target_pos = rand(rng,T)
     return new_target_pos
 end
@@ -144,7 +145,7 @@ RL.actions(d)
 
 rng = MersenneTwister(19)
 for i in 1:100
-    a = rand(rng, actions(d))
+    a = rand(rng, RL.actions(d))
     RL.act!(d,a)
 end
 

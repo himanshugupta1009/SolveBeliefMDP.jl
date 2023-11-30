@@ -165,7 +165,7 @@ RL.actions(c)
 
 rng = MersenneTwister(19)
 for i in 1:100
-    a = ( rand(rng), rand(rng) )
+    a = SVector(rand(rng),rand(rng))
     RL.act!(c,a)
 end
 

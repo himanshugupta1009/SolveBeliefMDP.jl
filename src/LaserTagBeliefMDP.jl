@@ -55,9 +55,6 @@ end
 
 #2: Define RL.actions
 RL.actions(env::LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Int},<:Any}}) = (:left, :right, :up, :down, :measure)
-const actiondir = Dict(:left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0))
-const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :measure=>5)
-
 RL.actions(env::LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Float64},<:Any}}) = (vx_lower=0.0,vx_upper=1.0,vy_lower=0.0,vy_upper=1.0)
 #=
 function RL.actions(wrap::ContinuousLaserTagWrapper)

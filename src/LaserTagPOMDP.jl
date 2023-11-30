@@ -1,5 +1,5 @@
 using POMDPs
-import POMDPPolicies:RandomPolicy
+import POMDPTools:RandomPolicy
 using Random
 include("LaserTag.jl")
 
@@ -29,6 +29,11 @@ function lasertag_observations(size)
     return os
 end
 
+
+#=
+***************************************************************************************
+LaserTag POMDp with discrete robot state space
+=#
 function DiscreteLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(20))
     obstacles = Set{SVector{2, Int}}()
     blocked = falses(size...)
@@ -54,6 +59,7 @@ end
 
 POMDPs.states(m::LaserTagPOMDP{SVector{2, Int64}}) = vec(collect(LTState(SVector(c[1],c[2]), SVector(c[3], c[4])) for c in Iterators.product(1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2])))
 POMDPs.actions(m::LaserTagPOMDP{SVector{2, Int64}}) = (:left, :right, :up, :down, :measure)
+const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :measure=>5)
 POMDPs.observations(m::LaserTagPOMDP{SVector{2, Int64}}) = lasertag_observations(m.size)
 POMDPs.discount(m::LaserTagPOMDP{SVector{2, Int64}}) = 0.95
 POMDPs.stateindex(m::LaserTagPOMDP{SVector{2, Int64}}, s) = LinearIndices((1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2]))[s.robot..., s.target...]
@@ -61,8 +67,17 @@ POMDPs.actionindex(m::LaserTagPOMDP{SVector{2, Int64}}, a) = actionind[a]
 POMDPs.obsindex(m::LaserTagPOMDP{SVector{2, Int64}}, o) = m.obsindices[(o.+1)...]::Int
 POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Int64}}, s) = s.robot == s.target
 
-const actiondir = Dict(:left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0))
-const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :measure=>5)
+
+function POMDPs.initialstate(m::LaserTagPOMDP)
+    states = LTState[]
+    for x in 1:m.size[1],y in 1:m.size[2]
+        target_state = SVector(x,y)
+        if(!(target_state in m.obstacles))
+            push!(states,LTState(m.robot_init,target_state))
+        end
+    end
+    return Uniform(states)
+end
 
 function POMDPs.transition(m::LaserTagPOMDP, s, a)
 
@@ -97,18 +112,6 @@ function POMDPs.observation(m::LaserTagPOMDP, a, sp)
     return O_likelihood
 end
 
-function POMDPs.initialstate(m::LaserTagPOMDP)
-    states = LTState[]
-    for x in 1:m.size[1],y in 1:m.size[2]
-        target_state = SVector(x,y)
-        if(!(target_state in m.obstacles))
-            push!(states,LTState(m.robot_init,target_state))
-        end
-    end
-    return Uniform(states)
-end
-
-
 function POMDPs.reward(m::LaserTagPOMDP, s, a, sp)
     if isterminal(m, s)
         return 0.0
@@ -120,7 +123,6 @@ function POMDPs.reward(m::LaserTagPOMDP, s, a, sp)
         return -1.0
     end
 end
-
 
 function POMDPs.reward(m::LaserTagPOMDP, s, a)
     r = 0.0
@@ -137,10 +139,8 @@ d = DiscreteLaserTagPOMDP();
 s = LTState( SVector(5,5), SVector(1,1) )
 transition(d,s,:right)
 observation(d,:right,s)
-initialstate(d)
-reward(d,s,:right)
-
 b = initialstate(d)
+reward(d,s,:right)
 
 using QMDP
 solver = QMDPSolver(max_iterations=20,belres=1e-3,verbose=true)
@@ -148,12 +148,8 @@ policy = solve(solver, d);
 a = action(policy,b)
 
 using ARDESPOT
-# DES_solver = DESPOTSolver(bounds=(-20.0, 0.0))
-# planner = solve(DES_solver,d)
-
-lower = DefaultPolicyLB(solve(QMDPSolver(), d));
-
-function upper(m, b)
+lower_discrete = DefaultPolicyLB(solve(QMDPSolver(), d));
+function upper_discrete(m, b)
     # dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
     # closing_steps = div(dist, 2)
     # if closing_steps > 1
@@ -164,18 +160,21 @@ function upper(m, b)
     return 100.0
 end
 
-DES_solver = DESPOTSolver(
-    bounds = IndependentBounds(lower, upper, check_terminal=true, consistency_fix_thresh=0.1),
+solver_discrete = DESPOTSolver(
+    bounds = IndependentBounds(lower_discrete, upper_discrete, check_terminal=true, consistency_fix_thresh=0.1),
     K = 50,
-    T_max = 1.2,
-    default_action = :measure
+    D = 20,
+    T_max = 0.5,
 )
-
-planner = solve(DES_solver, d);
-a = action(planner,b)
+planner_discrete = solve(solver_discrete, d);
+a = action(planner_discrete,b)
 =#
 
 
+#=
+***************************************************************************************
+LaserTag POMDp with continuous robot state space
+=#
 function ContinuousLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Random.MersenneTwister(20))
     obstacles = Set{SVector{2, Int}}()
     blocked = falses(size...)
@@ -200,15 +199,15 @@ function ContinuousLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=
 end
 
 function get_actions(m)
-    return SVector( (1.0,0.0), (1.0,1.0), (0.0,1.0), (-1.0,1.0), (-1.0,0.0), (-1.0,-1.0), (0.0,-1.0), (1.0,-1.0) )
+    return ( :right, :right_up, :up, :left_up, :left, :left_down, :down, :right_down, :measure )
+    # return SVector( (1.0,0.0), (1.0,1.0), (0.0,1.0), (-1.0,1.0), (-1.0,0.0), (-1.0,-1.0), (0.0,-1.0), (1.0,-1.0), (-10.0,-10.0) )
 end
 POMDPs.actions(m::LaserTagPOMDP{SVector{2, Float64}}) = get_actions(m)
 POMDPs.discount(m::LaserTagPOMDP{SVector{2, Float64}}) = 0.95
 POMDPs.isterminal(m::LaserTagPOMDP{SVector{2, Float64}}, s) = s.robot in s.target
 
-function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Float64}},s::LTState,a::Tuple,rng::AbstractRNG)
+function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Float64}},s::LTState,a::Symbol,rng::AbstractRNG)
 
-    println("HG: ",s)
     curr_robot = s.robot
     curr_target = s.target
 
@@ -233,22 +232,21 @@ end
 #=
 TBD
 using ARDESPOT
-qmdp_sol = QMDPSolver(max_iterations=20,belres=1e-3)
-qmdp_planner = solve(qmdp_sol,c)
+c = ContinuousLaserTagPOMDP();
 
-function lb_policy(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
+function lower_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
     return 0.0
-    return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
+    # return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
 end
-function upper(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
+function upper_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
     return 100.0
 end
 
 DES_solver = DESPOTSolver(
-    bounds = IndependentBounds(lb_policy, upper, check_terminal=true, consistency_fix_thresh=0.1),
+    bounds = IndependentBounds(lower_continuous, upper_continuous, check_terminal=true, consistency_fix_thresh=0.1),
     K = 100,
     D = 20,
-    T_max = 5.0,
+    T_max = 0.5,
 )
 planner = solve(DES_solver, c);
 b = initialstate(c)

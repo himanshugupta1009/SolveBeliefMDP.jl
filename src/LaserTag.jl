@@ -18,6 +18,10 @@ function Base.in(s::Union{MVector{2,Float64},SVector{2,Float64}}, o::Set{SVector
     return SVector(grid_x,grid_y) in o
 end
 
+const actiondir = Dict(:left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0),
+                        :left_up=>SVector(-1,1), :right_up=>SVector(1,1), :left_down=>SVector(-1, -1), :right_down=>SVector(1,-1)
+                            )
+
 function bounce(m, pos, change)
     #The dot operator in clamp below specifies that apply the clamp operation to each entry of that SVector with corresponding lower and upper bounds
     new = clamp.(pos + change, SVector(1,1), m.size)
@@ -40,6 +44,7 @@ function check_collision(m,old_pos,new_pos)
     for o in m.obstacles
         for delta in delta_op
             obs_boundary = LineSegment(o,o+delta)
+            # println(l,obs_boundary)
             if( !isempty(intersection(l,obs_boundary)) )
                 return true
             end
@@ -47,6 +52,7 @@ function check_collision(m,old_pos,new_pos)
         corner_point = o+SVector(1,1)
         for delta in delta_corner
             obs_boundary = LineSegment(corner_point,corner_point+delta)
+            # println(l,obs_boundary)
             if( !isempty(intersection(l,obs_boundary)) )
                 return true
             end
@@ -55,7 +61,7 @@ function check_collision(m,old_pos,new_pos)
     return false
 end
 
-function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a)
+function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a::SVector)
     change = SVector(a)
     new_pos = pos + change
     if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
@@ -64,6 +70,22 @@ function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a)
         return pos
     else
         return new_pos
+    end
+end
+
+function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a::Symbol)
+    if(a==:measure)
+        return pos
+    else
+        change = actiondir[a]
+        new_pos = pos + change
+        if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
+            new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0  ||
+            check_collision(m,pos,new_pos) )
+            return pos
+        else
+            return new_pos
+        end
     end
 end
 

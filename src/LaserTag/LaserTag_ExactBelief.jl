@@ -112,6 +112,9 @@ end
 
 
 #=
+include("LaserTagModule.jl")
+using .LaserTag
+
 using StaticArrays
 using CommonRLInterface
 using Random

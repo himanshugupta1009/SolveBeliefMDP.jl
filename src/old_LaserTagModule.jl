@@ -1,4 +1,11 @@
-module LaserTag
+#=
+***************************************************************************************888
+PLEASE NOTE:
+This needs to be modified or deleted to include Jackson's RL wrappers.
+If needed, make changes to the old LaserTagModule.jl file and delete this one. 
+=#
+
+module OldLaserTag
 
 # include("LaserTag_rl.jl")
 

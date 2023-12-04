@@ -6,9 +6,8 @@ using ParticleFilters
 using Random
 using POMDPs
 
-import POMDPTools:Uniform,SparseCat,weighted_iterator,action_info
+import POMDPTools:Uniform,SparseCat,weighted_iterator,action_info,RandomPolicy
 import LazySets:LineSegment,intersection
-import POMDPTools:RandomPolicy
 
 include("BeliefMDP.jl")
 include("LaserTag/LaserTag.jl")

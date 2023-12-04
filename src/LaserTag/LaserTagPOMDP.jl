@@ -1,7 +1,7 @@
-using POMDPs
-import POMDPTools:RandomPolicy
-using Random
-include("LaserTag.jl")
+# using POMDPs
+# import POMDPTools:RandomPolicy
+# using Random
+# include("LaserTag.jl")
 
 struct LTState{S,T}
     robot::S
@@ -135,6 +135,8 @@ function POMDPs.reward(m::LaserTagPOMDP, s, a)
 end
 
 #=
+using StaticArrays
+using POMDPs
 d = DiscreteLaserTagPOMDP();
 s = LTState( SVector(5,5), SVector(1,1) )
 transition(d,s,:right)
@@ -230,7 +232,8 @@ end
 
 
 #=
-TBD
+using StaticArrays
+using POMDPs
 using ARDESPOT
 c = ContinuousLaserTagPOMDP();
 
@@ -239,6 +242,14 @@ function lower_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::Scenario
     # return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
 end
 function upper_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
+    return 100.0
+end
+
+function lower_continuous(pomdp, b::ScenarioBelief)
+    return 0.0
+    # return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
+end
+function upper_continuous(pomdp, b::ScenarioBelief)
     return 100.0
 end
 

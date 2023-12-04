@@ -1,5 +1,5 @@
-include("LaserTagBeliefMDP.jl")
-using ParticleFilters
+# include("LaserTagBeliefMDP.jl")
+# using ParticleFilters
 
 function particle_propogation(x,u,rng)
     m,newrobot_pos,a = u
@@ -134,6 +134,11 @@ end
 
 
 #=
+using StaticArrays
+using CommonRLInterface
+using Random
+const RL = CommonRLInterface
+
 d = DiscreteLaserTagPFBeliefMDP();
 d.state.robot_pos
 d.state.belief_target

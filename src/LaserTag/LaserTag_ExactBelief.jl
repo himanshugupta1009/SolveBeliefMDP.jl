@@ -1,4 +1,4 @@
-include("LaserTagBeliefMDP.jl")
+# include("LaserTagBeliefMDP.jl")
 
 function initialbelief(size, obstacles)
     num_valid_states = prod(size) - length(obstacles)
@@ -112,6 +112,11 @@ end
 
 
 #=
+using StaticArrays
+using CommonRLInterface
+using Random
+const RL = CommonRLInterface
+
 d = DiscreteLaserTagBeliefMDP();
 d.state.robot_pos
 d.state.belief_target

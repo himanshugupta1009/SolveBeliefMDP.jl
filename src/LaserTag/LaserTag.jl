@@ -1,6 +1,6 @@
-using StaticArrays
-import POMDPTools:Uniform,SparseCat,weighted_iterator,action_info
-import LazySets:LineSegment,intersection
+# using StaticArrays
+# import POMDPTools:Uniform,SparseCat,weighted_iterator,action_info
+# import LazySets:LineSegment,intersection
 
 function Base.in(s::Union{MVector{2,Int},SVector{2,Int}}, o::Union{SVector{2, Int},MVector{2, Int}})
     return s[1]==o[1] && s[2]==o[2]

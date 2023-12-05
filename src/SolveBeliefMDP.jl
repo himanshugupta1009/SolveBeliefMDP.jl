@@ -1,7 +1,9 @@
 module SolveBeliefMDP
 
+using Reexport
+
 include("LaserTagModule.jl")
-using .LaserTag
-export LaserTagBeliefMDP, LaserTagWrapper
+@reexport using .LaserTag
+# export LaserTagBeliefMDP, LaserTagWrapper
 
 end

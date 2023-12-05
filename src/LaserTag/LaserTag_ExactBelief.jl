@@ -1,5 +1,7 @@
 # include("LaserTagBeliefMDP.jl")
 
+const ExactBeliefLaserTag = LaserTagBeliefMDP{<:BeliefMDPState{<:Any,<:MMatrix}}
+
 function initialbelief(size, obstacles)
     num_valid_states = prod(size) - length(obstacles)
     b = ones(size...)

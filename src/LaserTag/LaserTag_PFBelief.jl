@@ -27,6 +27,8 @@ struct PFBelief{S,T}
     collection::T
 end
 
+const ParticleBeliefLaserTag = LaserTagBeliefMDP{<:BeliefMDPState{<:Any, <:PFBelief}}
+
 
 function initialbelief(size,obstacles,::Val{M}) where M
     valid_states = Set{SVector{2,Int}}()

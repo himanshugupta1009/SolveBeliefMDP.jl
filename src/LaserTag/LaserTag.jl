@@ -18,9 +18,10 @@ function Base.in(s::Union{MVector{2,Float64},SVector{2,Float64}}, o::Set{SVector
     return SVector(grid_x,grid_y) in o
 end
 
-const actiondir = Dict(:left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0),
-                        :left_up=>SVector(-1,1), :right_up=>SVector(1,1), :left_down=>SVector(-1, -1), :right_down=>SVector(1,-1)
-                            )
+const actiondir = Dict(
+    :left=>SVector(-1,0), :right=>SVector(1,0), :up=>SVector(0, 1), :down=>SVector(0,-1), :measure=>SVector(0,0),
+    :left_up=>SVector(-1,1), :right_up=>SVector(1,1), :left_down=>SVector(-1, -1), :right_down=>SVector(1,-1)
+)
 
 function bounce(m, pos, change)
     #The dot operator in clamp below specifies that apply the clamp operation to each entry of that SVector with corresponding lower and upper bounds
@@ -30,10 +31,6 @@ function bounce(m, pos, change)
     else
         return new
     end
-end
-
-function move_robot(m,pos::Union{MVector{2,Int},SVector{2,Int}},a::Symbol)
-    return bounce(m, pos, actiondir[a])
 end
 
 function check_collision(m,old_pos,new_pos)
@@ -61,11 +58,10 @@ function check_collision(m,old_pos,new_pos)
     return false
 end
 
-function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a::SVector)
-    change = SVector(a)
-    new_pos = pos + change
+function move_robot(m, pos::StaticVector{2,<:AbstractFloat}, a::AbstractVector)
+    new_pos = pos + a # a == change
     if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
-        new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0  ||
+        new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0 ||
         check_collision(m,pos,new_pos) )
         return pos
     else
@@ -73,21 +69,19 @@ function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a::SVe
     end
 end
 
-function move_robot(m, pos::Union{MVector{2,Float64},SVector{2,Float64}}, a::Symbol)
+function move_robot(m, pos::StaticVector{2,<:AbstractFloat}, a::Symbol)
     if(a==:measure)
         return pos
     else
-        change = actiondir[a]
-        new_pos = pos + change
-        if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
-            new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0  ||
-            check_collision(m,pos,new_pos) )
-            return pos
-        else
-            return new_pos
-        end
+        return move_robot(m, pos, actiondir[a])
     end
 end
+
+
+function move_robot(m, pos::StaticVector{2,<:Integer}, a::Symbol)
+    return bounce(m, pos, actiondir[a])
+end
+
 
 function target_transition_likelihood(m,oldrobot_pos,newrobot_pos,oldtarget)
 

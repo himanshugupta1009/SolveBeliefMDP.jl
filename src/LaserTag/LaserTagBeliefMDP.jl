@@ -17,6 +17,10 @@ struct LaserTagBeliefMDP{S} <: BeliefMDP
     state::S
 end
 
+# Types
+const DiscreteActionLaserTag   = LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Int},<:Any}}
+const ContinuousActionLaserTag = LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Float64},<:Any}}
+
 #1: Define RL.reset!
 function RL.reset!(env::LaserTagBeliefMDP)
 
@@ -51,10 +55,9 @@ function sample_pos(env::LaserTagBeliefMDP,r::MVector{2,Float64})
     return pos
 end
 
-
 #2: Define RL.actions
-RL.actions(env::LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Int},<:Any}}) = (:left, :right, :up, :down, :measure)
-RL.actions(env::LaserTagBeliefMDP{<:BeliefMDPState{MVector{2, Float64},<:Any}}) = (vx_lower=0.0,vx_upper=1.0,vy_lower=0.0,vy_upper=1.0)
+RL.actions(env::DiscreteActionLaserTag) = keys(actiondir)
+RL.actions(env::ContinuousActionLaserTag) = Box(lower=[-1f0, -1f0], upper=[1f0, 1f0])
 #=
 function RL.actions(wrap::ContinuousLaserTagWrapper)
     a = RL.actions(wrap.env) = (vx_lower=0.0,vx_upper=1.0,vy_lower=0.0,vy_upper=1.0)

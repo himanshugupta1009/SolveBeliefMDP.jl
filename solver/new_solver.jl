@@ -75,74 +75,95 @@ function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple)
     r * convert(typeof(r), wrap.reward_scale)
 end
 
-# This code should take ~3 minutes to run (plus precompile time)
+# # This code should take ~3 minutes to run (plus precompile time)
+# discount = 0.99
+# solver = PPOSolver(; 
+#     env = RewNorm(; discount, env = LoggingWrapper(; discount, 
+#         env = VecEnv(n_envs=8) do 
+#             LaserTagWrapper(env=DiscreteLaserTagBeliefMDP())
+#         end
+#     )),
+#     discount, 
+#     n_steps = 500_000,
+#     traj_len = 256,
+#     batch_size = 256,
+#     n_epochs = 4,
+#     kl_targ = Inf32,
+#     ent_coef = 0,
+#     lr_decay = false,
+#     ac_kwargs = (critic_dims=[256,256], actor_dims=[256,256])
+# )
+# ac, info_log = solve(solver)
+# plot_LoggingWrapper(solver.env)
+
+
+# # So Himanshu can see how to interact with RL policy.
+# # Note: There are observation and action transforms that happen in the LasterTagWrapper!
+# # To properly evaluate, *MUST* wrap environment in LaserTagWrapper.
+# function evaluate(env, ac; discount=0.99, max_steps=500)
+#     reset!(env)
+#     steps = 0
+#     r = 0.0
+#     while !terminated(env) || steps < max_steps
+#         o = observe(env)
+#         a = ac(o)
+#         r += act!(env, a) * discount ^ steps
+#         steps += 1
+#     end
+#     return r
+# end
+# evaluate(LaserTagWrapper(env=DiscreteLaserTagBeliefMDP()), solver.ac) # ac is callable
+
+
+# 0.05 is BAD
+# 0.01 had best performance
+# diff ent coeff for diff networks?
+# 64 layer worked well enough, 2.5 mill should be good
+
 discount = 0.99
 solver = PPOSolver(; 
     env = RewNorm(; discount, env = LoggingWrapper(; discount, 
         env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=DiscreteLaserTagBeliefMDP())
+            LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
         end
     )),
     discount, 
     n_steps = 500_000,
-    traj_len = 256,
-    batch_size = 256,
+    traj_len = 128,
+    batch_size = 128,
     n_epochs = 4,
     kl_targ = Inf32,
-    ent_coef = 0,
+    ent_coef = 0.01,
+    vf_coef = 1.0,
     lr_decay = false,
-    ac_kwargs = (critic_dims=[256,256], actor_dims=[256,256])
+    lr = 3e-4,
+    ac_kwargs = (shared_dims=[], critic_dims=[256, 256], actor_dims=[64, 64], squash=true)
 )
 ac, info_log = solve(solver)
 plot_LoggingWrapper(solver.env)
 
+# this TupleActor code changes things... why?
 
-# So Himanshu can see how to interact with RL policy.
-# Note: There are observation and action transforms that happen in the LasterTagWrapper!
-# To properly evaluate, *MUST* wrap environment in LaserTagWrapper.
-function evaluate(env, ac; discount=0.99, max_steps=500)
-    reset!(env)
-    steps = 0
-    r = 0.0
-    while !terminated(env) || steps < max_steps
-        o = observe(env)
-        a = ac(o)
-        r += act!(env, a) * discount ^ steps
-        steps += 1
-    end
-    return r
+struct TupleActor{S,H}
+    shared::S
+    heads::H
 end
-evaluate(LaserTagWrapper(env=DiscreteLaserTagBeliefMDP()), solver.ac) # ac is callable
+function RLAlgorithms.Algorithms.Actor(A::TupleSpace, input_size; kwargs...)
+    heads = Tuple(RLAlgorithms.Algorithms.Actor(space, input_size; kwargs...) for space in wrapped_space(A))
+    TupleActor((),heads)
+end
+function RLAlgorithms.Algorithms.get_action(actor::TupleActor, input, actions; kwargs...)
+    if isnothing(actions)
+        action_info = Tuple(RLAlgorithms.Algorithms.get_action(actor, input, actions; kwargs...) for actor in actor.heads)
+    else
+        action_info = Tuple(RLAlgorithms.Algorithms.get_action(actor, input, action; kwargs...) for (actor,action) in zip(actor.heads,actions))
+    end
 
+    action          = Tuple(info[1] for info in action_info)
+    action_log_prob = Tuple(info[2] for info in action_info)
+    entropy         = Tuple(info[3] for info in action_info)
 
-
-
-# for act_dim in [64, 256],  ent_coef in [0.0, 0.01, 0.05]
-#     discount = 0.99
-#     solver = PPOSolver(; 
-#         env = RewNorm(; discount, env = LoggingWrapper(; discount, 
-#             env = VecEnv(n_envs=8) do 
-#                 LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
-#             end
-#         )),
-#         discount, 
-#         n_steps = 10_000_000,
-#         traj_len = 256,
-#         batch_size = 256,
-#         n_epochs = 4,
-#         kl_targ = Inf32,
-#         ent_coef,
-#         vf_coef = 1.0,
-#         lr_decay = true,
-#         ac_kwargs = (critic_dims=[256,256], actor_dims=[act_dim, act_dim], squash=true)
-#     )
-#     ac, info_log = solve(solver)    
-#     plot_LoggingWrapper(solver.env) |> display
-# end
-
-
-
-
-
+    return action, action_log_prob, entropy
+end
 
 

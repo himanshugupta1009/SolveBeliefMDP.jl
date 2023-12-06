@@ -58,6 +58,12 @@ function RL.observe(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     return o
 end
 
+function RL.observe(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
+    o = reshape(observe(wrap.env), 2, :) ./ wrap.env.size
+    # mean and normalizing particles?
+    return @views (o[:,1], o[:,2:end])
+end
+
 RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0, -1f0], upper=[1f0, 1f0]), Discrete(2))
 RL.actions(wrap::LaserTagWrapper{<:DiscreteActionLaserTag}) = Discrete(length(actions(wrap.env)))
 
@@ -174,15 +180,14 @@ f(x) = max(0, 1+log10(x)/2)
 obs = stack([test_env.env.obstacles...])
 common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10)
 anim = Plots.@animate for i in eachindex(belief_target)
-    b = f.(belief_target[i]')
-    heatmap(b, c = Plots.cgrad(:roma, scale=:log), clim=(0,1))
+    b = f.(belief_target[i])
+    heatmap(0.5 .+ (1:10), 0.5 .+ (1:7), b'; c = Plots.cgrad(:roma, scale=:log), clim=(0,1))
     plot!([robot_pos[i][1]], [robot_pos[i][2]]; markershape=:circle, common...)
-    plot!([target[i][1]], [target[i][2]]; markershape=:star5, common...)
-    plot!(obs[1,:], obs[2,:]; markershape=:x, common...)
+    plot!([0.5+target[i][1]], [0.5+target[i][2]]; markershape=:star5, common...)
+    plot!(0.5 .+ obs[1,:], 0.5 .+ obs[2,:]; markershape=:x, common...)
     plot!(; title = "max(0, 1+log10(b)/2), t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
 end
 gif(anim, "continuous_exact_animation.gif", fps = 1)
-
 
 
 ## PF

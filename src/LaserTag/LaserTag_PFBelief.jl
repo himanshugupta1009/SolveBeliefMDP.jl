@@ -126,7 +126,14 @@ end
 
 function change_belief_format(b::PFBelief)
     particles = b.collection.particles
-    return SVector(vcat(particles...))
+    # return SVector(vcat(particles...))
+
+    # changed beacuse slow
+
+    p_type = eltype(particles)
+    N = length(particles)*length(p_type)
+    T = eltype(p_type)
+    return SVector{N, T}(reduce(vcat, particles))
 end
 
 function set_belief!(env::LaserTagBeliefMDP,new_b::ParticleCollection)

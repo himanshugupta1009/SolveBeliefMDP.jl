@@ -59,7 +59,7 @@ function check_collision(m,old_pos,new_pos)
 end
 
 function move_robot(m, pos::StaticVector{2,<:AbstractFloat}, a::AbstractVector)
-    new_pos = pos + a # a == change
+    new_pos = pos + clamp.(a,-1,1) # a == change
     if( new_pos[1] >= 1.0+m.size[1] || new_pos[1] < 1.0 ||
         new_pos[2] >= 1.0+m.size[2] || new_pos[2] < 1.0 ||
         check_collision(m,pos,new_pos) )

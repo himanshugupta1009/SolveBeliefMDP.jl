@@ -81,8 +81,8 @@ function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,newrobot)
     for i in 1:m.size[1], j in 1:m.size[2]
         b_s = b[i,j]
         T = target_transition_likelihood(m,oldrobot,newrobot,SVector(i,j))
+        @assert all(isfinite, T.probs)
         for k in 1:length(T.vals)
-            @assert !isnan(T.probs[k])
             bp[T.vals[k]...] += b_s*T.probs[k]
         end
     end
@@ -97,19 +97,15 @@ function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,newrobot)
         end
     end
 
-    return bp/sum(bp)
+    return bp ./ sum(bp)
 end
 
-function change_belief_format(b::MMatrix)
-    #Transpose is taken because vcat concatenates using columns and not rows, while we want to concatenate rows
-    b_transpose = b'
-    return SVector(b...)
-end
+change_belief_format(b::MMatrix) = SVector(b)
+
 
 function set_belief!(env::LaserTagBeliefMDP,new_b::MMatrix)
-    for i in 1:env.size[1], j in 1:env.size[2]
-        env.state.belief_target[i,j] = new_b[i,j]
-    end
+    env.state.belief_target .= new_b
+    nothing
 end
 
 

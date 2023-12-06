@@ -1,6 +1,5 @@
-using SolveBeliefMDP
-using RLAlgorithms, CommonRLInterface
-using Plots, Statistics
+using SolveBeliefMDP, RLAlgorithms
+using CommonRLInterface, Plots, Statistics, BSON
 
 const RL = CommonRLInterface
 
@@ -28,6 +27,10 @@ function plot_LoggingWrapper(env)
     plot(p1, p2; layout=(2,1))    
 end
 
+
+env = DiscreteLaserTagPFBeliefMDP()
+
+
 @kwdef mutable struct LaserTagWrapper{T<:LaserTagBeliefMDP} <: Wrappers.AbstractWrapper
     const env::T # = DiscreteLaserTagBeliefMDP(), = ContinuousLaserTagBeliefMDP
     const max_steps::Int = 500
@@ -45,6 +48,7 @@ function RL.reset!(wrap::LaserTagWrapper)
 end
 
 RL.observations(wrap::LaserTagWrapper{<:ExactBeliefLaserTag}) = Box(Float32, 2+reduce(*, wrap.env.size))
+RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag}) = TupleSpace(Box(Float32, 2), Box(2*length(wrap.env.state.belief_target.collection.particles)))
 
 function RL.observe(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     o = Float32.(observe(wrap.env))
@@ -128,42 +132,59 @@ solver = PPOSolver(;
         end
     )),
     discount, 
-    n_steps = 500_000,
+    n_steps = 5_000_000,
     traj_len = 128,
     batch_size = 128,
     n_epochs = 4,
     kl_targ = Inf32,
-    ent_coef = 0.01,
+    clip_coef = 0.02,
+    clipl2 = 0.5,
+    ent_coef = (0f0, 0.01f0),
     vf_coef = 1.0,
-    lr_decay = false,
+    lr_decay = true,
     lr = 3e-4,
-    ac_kwargs = (shared_dims=[], critic_dims=[256, 256], actor_dims=[64, 64], squash=true)
+    ac_kwargs = (shared_dims=[], critic_dims=[256,256], actor_dims=[256,256], shared_actor_dims=[], squash=true)
 )
 ac, info_log = solve(solver)
 plot_LoggingWrapper(solver.env)
 
-# this TupleActor code changes things... why?
+bson("continuous_exact.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
 
-struct TupleActor{S,H}
-    shared::S
-    heads::H
-end
-function RLAlgorithms.Algorithms.Actor(A::TupleSpace, input_size; kwargs...)
-    heads = Tuple(RLAlgorithms.Algorithms.Actor(space, input_size; kwargs...) for space in wrapped_space(A))
-    TupleActor((),heads)
-end
-function RLAlgorithms.Algorithms.get_action(actor::TupleActor, input, actions; kwargs...)
-    if isnothing(actions)
-        action_info = Tuple(RLAlgorithms.Algorithms.get_action(actor, input, actions; kwargs...) for actor in actor.heads)
-    else
-        action_info = Tuple(RLAlgorithms.Algorithms.get_action(actor, input, action; kwargs...) for (actor,action) in zip(actor.heads,actions))
-    end
 
-    action          = Tuple(info[1] for info in action_info)
-    action_log_prob = Tuple(info[2] for info in action_info)
-    entropy         = Tuple(info[3] for info in action_info)
+test_env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
+ac = solver.ac
+reset!(test_env)
+target, robot_pos, belief_target = [], [], []
+for t in 1:1000
+    push!(target, copy(test_env.env.target))
+    push!(robot_pos, copy(test_env.env.state.robot_pos))
+    push!(belief_target, copy(test_env.env.state.belief_target))
 
-    return action, action_log_prob, entropy
+    s = observe(test_env)
+    a = ac(s)
+    act!(test_env, a)
+    terminated(test_env) && break
 end
+
+target
+robot_pos
+belief_target
+
+f(x) = max(0, 1+log10(x)/2)
+obs = stack([test_env.env.obstacles...])
+common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10)
+anim = Plots.@animate for i in eachindex(belief_target)
+    b = f.(belief_target[i]')
+    heatmap(b, c = Plots.cgrad(:roma, scale=:log), clim=(0,1))
+    plot!([robot_pos[i][1]], [robot_pos[i][2]]; markershape=:circle, common...)
+    plot!([target[i][1]], [target[i][2]]; markershape=:star5, common...)
+    plot!(obs[1,:], obs[2,:]; markershape=:x, common...)
+    plot!(; title = "max(0, 1+log10(b)/2), t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
+end
+gif(anim, "continuous_exact_animation.gif", fps = 1)
+
+
+
+## PF
 
 

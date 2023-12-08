@@ -27,15 +27,11 @@ function plot_LoggingWrapper(env)
     plot(p1, p2; layout=(2,1))    
 end
 
-
-env = DiscreteLaserTagPFBeliefMDP()
-
-
 @kwdef mutable struct LaserTagWrapper{T<:LaserTagBeliefMDP} <: Wrappers.AbstractWrapper
     const env::T # = DiscreteLaserTagBeliefMDP(), = ContinuousLaserTagBeliefMDP
     const max_steps::Int = 500
     steps::Int = 0
-    reward_scale::Float64 = 1.
+    const reward_scale::Float64 = 1.
 end
 
 Wrappers.wrapped_env(wrap::LaserTagWrapper) = wrap.env
@@ -54,7 +50,7 @@ function RL.observe(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     o = Float32.(observe(wrap.env))
     @assert !any(isnan, o)
     o[1:2] ./= wrap.env.size # normalizing
-    @views @. o[3:end] = max(0, 1+log10(o[3:end])/2) # transform belief
+    @views @. o[3:end] = max(-1, 1+log10(o[3:end])*(2//3)) # transform belief
     return o
 end
 
@@ -75,7 +71,9 @@ function RL.act!(wrap::LaserTagWrapper{<:DiscreteActionLaserTag}, a::Integer)
     r * convert(typeof(r), wrap.reward_scale)
 end
 
-function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple)
+RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"
+RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractVector, <:AbstractArray}) = act!(wrap, (a[1],a[2][]))
+function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractVector, <:Integer})
     wrap.steps += 1
     if a[2] == 1
         r = act!(wrap.env, :measure)
@@ -130,64 +128,92 @@ end
 # diff ent coeff for diff networks?
 # 64 layer worked well enough, 2.5 mill should be good
 
+
+function test_rand(test_env; discount=0.99)
+    reset!(test_env)
+    step = 0
+    r = 0.0
+    while !terminated(test_env) && step < floor(Int, log(0.005)/log(discount))
+        a = (2*rand(2).-1, rand([1,2]))
+        r += act!(test_env, a)
+        step += 1
+    end
+    step
+end
+
+
+test_env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
+y = [test_rand(test_env; discount=0.999) for _ in 1:100]
+mean(reduce(vcat, y))
+std(reduce(vcat, y))
+count(y .== maximum(y))
+log(0.005)/log(0.999)
+
+
+
 discount = 0.99
 solver = PPOSolver(; 
-    env = RewNorm(; discount, env = LoggingWrapper(; discount, 
-        env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
+    env = LoggingWrapper(; discount, 
+        env = VecEnv(n_envs=16) do 
+            LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1/50, max_steps=1500)
         end
-    )),
+    ),
     discount, 
-    n_steps = 5_000_000,
-    traj_len = 128,
+    n_steps = 1_000_000,
+    traj_len = 512,
     batch_size = 128,
-    n_epochs = 4,
-    kl_targ = Inf32,
+    n_epochs = 1,
+    kl_targ = 0.02,
     clip_coef = 0.02,
-    clipl2 = 0.5,
-    ent_coef = (0f0, 0.01f0),
+    clipl2 = Inf32,
+    ent_coef = (0f0, 0.1f0),
     vf_coef = 1.0,
-    lr_decay = true,
+    lr_decay = false,
+    gae_lambda = 1.0,
     lr = 3e-4,
-    ac_kwargs = (shared_dims=[], critic_dims=[256,256], actor_dims=[256,256], shared_actor_dims=[], squash=true)
+    ac_kwargs = (critic_dims=[256,256], actor_dims=[64,64], shared_actor_dims=[], squash=true)
 )
 ac, info_log = solve(solver)
 plot_LoggingWrapper(solver.env)
 
+plot(info_log[:value_loss]...) # this seems too high?
+
+
 bson("continuous_exact.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
 
 
-test_env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
 ac = solver.ac
+test_env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
 reset!(test_env)
 target, robot_pos, belief_target = [], [], []
-for t in 1:1000
+a_c, a_d = [], []
+for t in 1:500
     push!(target, copy(test_env.env.target))
     push!(robot_pos, copy(test_env.env.state.robot_pos))
     push!(belief_target, copy(test_env.env.state.belief_target))
 
     s = observe(test_env)
     a = ac(s)
+    push!.((a_c,a_d), a)
     act!(test_env, a)
     terminated(test_env) && break
 end
 
-target
-robot_pos
-belief_target
 
-f(x) = max(0, 1+log10(x)/2)
+f(x) = max(0, 1+log10(x)/3)
 obs = stack([test_env.env.obstacles...])
-common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10)
+common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10, xticks=1:10, ticks=1:7)
 anim = Plots.@animate for i in eachindex(belief_target)
     b = f.(belief_target[i])
     heatmap(0.5 .+ (1:10), 0.5 .+ (1:7), b'; c = Plots.cgrad(:roma, scale=:log), clim=(0,1))
     plot!([robot_pos[i][1]], [robot_pos[i][2]]; markershape=:circle, common...)
     plot!([0.5+target[i][1]], [0.5+target[i][2]]; markershape=:star5, common...)
     plot!(0.5 .+ obs[1,:], 0.5 .+ obs[2,:]; markershape=:x, common...)
-    plot!(; title = "max(0, 1+log10(b)/2), t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
+    a = (a_d[i][] == 1) ? "measure" : round.(Float64.(a_c[i]), digits=2)
+    plot!(; title = "a = $a, t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
 end
-gif(anim, "continuous_exact_animation.gif", fps = 1)
+gif(anim, fps = 1)
+
 
 
 ## PF

@@ -149,7 +149,12 @@ function observation_likelihood(m, a, newrobot, target_pos)
         ranges = laserbounce(ranges, robot_pos, obstacle)
     end
     ranges = laserbounce(ranges, robot_pos, target_pos)
-    os = SVector(ranges, SVector(0, 0, 0, 0))
+    if(robot_pos in target_pos)
+        os = SVector(SVector(1,ranges...), SVector(1, 0, 0, 0, 0))
+    else
+        os = SVector(SVector(0,ranges...), SVector(0, 0, 0, 0, 0))
+    end
+    # os = SVector(ranges, SVector(0, 0, 0, 0))
     if all(ranges.==0.0) || a == :measure
         probs = SVector(1.0, 0.0)
     else

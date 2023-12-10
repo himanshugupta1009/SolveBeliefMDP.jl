@@ -77,26 +77,32 @@ end
 
 function update_belief(m::LaserTagBeliefMDP,b::MMatrix,a,o,newrobot)
     bp = MMatrix{m.size[1],m.size[2]}(zeros(m.size...))
-    oldrobot = m.state.robot_pos
-    for i in 1:m.size[1], j in 1:m.size[2]
-        b_s = b[i,j]
-        T = target_transition_likelihood(m,oldrobot,newrobot,SVector(i,j))
-        @assert all(isfinite, T.probs)
-        for k in 1:length(T.vals)
-            bp[T.vals[k]...] += b_s*T.probs[k]
+
+    if(o[1] == 1) #Robot sees the Target in its grid
+        pos = SVector( Int(floor(newrobot[1])),Int(floor(newrobot[2])) )
+        bp[pos...] = 1.0 #Collapse the belief state
+    else
+        oldrobot = m.state.robot_pos
+
+        for i in 1:m.size[1], j in 1:m.size[2]
+            b_s = b[i,j]
+            T = target_transition_likelihood(m,oldrobot,newrobot,SVector(i,j))
+            @assert all(isfinite, T.probs)
+            for k in 1:length(T.vals)
+                bp[T.vals[k]...] += b_s*T.probs[k]
+            end
+        end
+
+        for i in 1:m.size[1], j in 1:m.size[2]
+            O = observation_likelihood(m,a,newrobot,SVector(i,j))
+            index = findfirst(x -> x==o,O.vals)
+            if(isnothing(index))
+                bp[i,j] = 0.0
+            else
+                bp[i,j] = bp[i,j]*O.probs[index]
+            end
         end
     end
-
-    for i in 1:m.size[1], j in 1:m.size[2]
-        O = observation_likelihood(m,a,newrobot,SVector(i,j))
-        index = findfirst(x -> x==o,O.vals)
-        if(isnothing(index))
-            bp[i,j] = 0.0
-        else
-            bp[i,j] = bp[i,j]*O.probs[index]
-        end
-    end
-
     return bp ./ sum(bp)
 end
 

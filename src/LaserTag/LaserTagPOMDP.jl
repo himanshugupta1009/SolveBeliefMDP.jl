@@ -22,9 +22,9 @@ struct LaserTagPOMDP{S} <: POMDP{LTState, Symbol, SVector{4,Int}}
 end
 
 function lasertag_observations(size)
-    os = SVector{4,Int}[]
-    for left in 0:size[1]-1, right in 0:size[1]-left-1, up in 0:size[2]-1, down in 0:size[2]-up-1
-        push!(os, SVector(left, right, up, down))
+    os = SVector{5,Int}[]
+    for same_grid in 0:1, left in 0:size[1]-1, right in 0:size[1]-left-1, up in 0:size[2]-1, down in 0:size[2]-up-1
+        push!(os, SVector(same_grid, left, right, up, down))
     end
     return os
 end

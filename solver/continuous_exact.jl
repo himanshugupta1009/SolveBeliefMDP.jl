@@ -40,7 +40,7 @@ solver = PPOSolver(;
         end
     ),
     discount, 
-    n_steps = 5_000_000,
+    n_steps = 10_000_000,
     traj_len = 512,
     batch_size = 256,
     n_epochs = 4,
@@ -73,10 +73,12 @@ solver = PPOSolver(;
 ac, info_log = solve(solver)
 
 plot_LoggingWrapper(solver.env)
-plot!(ylims=(0,200))
+savefig("solver/continuous_exact.png")
 
 solver.ac.actor.actors[1].log_std
 
 plot(info_log[:value_loss]...; label=false)
+
+bson("solver/continuous_exact_10.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
 
 

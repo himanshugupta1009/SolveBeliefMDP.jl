@@ -25,9 +25,9 @@ end
 
 function plot_LoggingWrapper(env)
     hist = get_info(env)["LoggingWrapper"]
-    p1 = CIplot(hist["steps"], hist["reward"], label="Undiscounted", c=1, title="Episodic Reward")
-    CIplot!(p1, hist["steps"], hist["discounted_reward"], label="Discounted", c=2)
-    p2 = CIplot(hist["steps"], hist["episode_length"]; title="Episode Length", xlabel="Steps")
+    p1 = CIplot(hist["steps"], hist["reward"], label="Undiscounted", c=1, title="Episodic Reward", ylims=(-200,100))
+    CIplot!(p1, hist["steps"], hist["discounted_reward"], label="Discounted", c=2, legend=:bottomright)
+    p2 = CIplot(hist["steps"], hist["episode_length"]; title="Episode Length", xlabel="Steps", ylims=(0,300))
     plot(p1, p2; layout=(2,1))    
 end
 

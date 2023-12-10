@@ -1,5 +1,7 @@
+include("new_solver.jl")
+
 function continuous_exact_animation(ac)
-    test_env = LaserTagWrapper(env=DiscreteLaserTagBeliefMDP())
+    test_env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP())
     reset!(test_env)
     target, robot_pos, belief_target = [], [], []
     a_c, a_d = [], []
@@ -24,8 +26,7 @@ function continuous_exact_animation(ac)
         plot!([robot_pos[i][1]], [robot_pos[i][2]]; markershape=:circle, common...)
         plot!([0.5+target[i][1]], [0.5+target[i][2]]; markershape=:star5, common...)
         plot!(0.5 .+ obs[1,:], 0.5 .+ obs[2,:]; markershape=:x, common...)
-        # a = (a_d[i][] == 1) ? "measure" : round.(Float64.(a_c[i]), digits=2)
-        a = idx2act[a_d[i][]]
+        a = (a_d[i][] == 1) ? "measure" : round.(Float64.(vec(a_c[i])), digits=2)
         plot!(; title = "a = $a, t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
     end
     gif(anim, fps = 1)
@@ -46,15 +47,16 @@ solver = PPOSolver(;
     n_epochs = 4,
     kl_targ = 0.02,
     clipl2 = Inf32,
-    ent_coef = (0.0f0, 0.01f0),
+    ent_coef = (0.01f0, 0.01f0),
     lr_decay = true,
     vf_coef = 1.0,
     gae_lambda = 0.95,
     burnin_steps = 0,
     ac_kwargs = (
         critic_dims = [64,64], 
-        actor_dims  = [64,64], 
-        critic_type = (:scalar, :categorical)[2], 
+        actor_dims  = [], 
+        shared_actor_dims  = [64,64], 
+        critic_type = (:scalar, :categorical)[1], 
         categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
         critic_loss_transform = symlog,
         inv_critic_loss_transform = symexp,
@@ -80,5 +82,16 @@ solver.ac.actor.actors[1].log_std
 plot(info_log[:value_loss]...; label=false)
 
 bson("solver/continuous_exact_10.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
+
+
+results = [evaluate(LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=1000), solver.ac) for _ in 1:1000]
+vals = mean(results)
+errs = std(results)/sqrt(length(results))
+
+
+data = BSON.load("solver/continuous_exact_10.bson")
+
+
+continuous_exact_animation(data[:ac])
 
 

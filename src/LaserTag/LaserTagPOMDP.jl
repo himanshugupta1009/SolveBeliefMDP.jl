@@ -13,12 +13,12 @@ Base.convert(::Type{AbstractVector{Int}}, s::LTState) = convert(SVector{4, Int},
 Base.convert(::Type{AbstractVector}, s::LTState) = convert(SVector{4, Int}, s)
 Base.convert(::Type{AbstractArray}, s::LTState) = convert(SVector{4, Int}, s)
 
-struct LaserTagPOMDP{S} <: POMDP{LTState, Symbol, SVector{4,Int}}
+struct LaserTagPOMDP{S} <: POMDP{LTState, Symbol, SVector{5,Int}}
     size::SVector{2, Int}
     obstacles::Set{SVector{2, Int}}
     blocked::BitArray{2}
     robot_init::S
-    obsindices::Array{Union{Nothing,Int}, 4}
+    obsindices::Array{Union{Nothing,Int}, 5}
 end
 
 function lasertag_observations(size)
@@ -49,7 +49,7 @@ function DiscreteLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Ra
         robot_init = SVector(rand(rng, 1:size[1]), rand(rng, 1:size[2]))
     end
 
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
+    obsindices = Array{Union{Nothing,Int}}(nothing, 2, size[1], size[1], size[2], size[2])
     for (ind, o) in enumerate(lasertag_observations(size))
         obsindices[(o.+1)...] = ind
     end
@@ -58,10 +58,10 @@ function DiscreteLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=Ra
 end
 
 POMDPs.states(m::LaserTagPOMDP{SVector{2, Int64}}) = vec(collect(LTState(SVector(c[1],c[2]), SVector(c[3], c[4])) for c in Iterators.product(1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2])))
-POMDPs.actions(m::LaserTagPOMDP{SVector{2, Int64}}) = (:left, :right, :up, :down, :measure)
-const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :measure=>5)
+POMDPs.actions(m::LaserTagPOMDP{SVector{2, Int64}}) = (:left, :right, :up, :down, :left_up, :right_up, :left_down, :right_down, :measure)
+const actionind = Dict(:left=>1, :right=>2, :up=>3, :down=>4, :left_up=>5, :right_up=>6, :left_down=>7, :right_down=>8, :measure=>9)
 POMDPs.observations(m::LaserTagPOMDP{SVector{2, Int64}}) = lasertag_observations(m.size)
-POMDPs.discount(m::LaserTagPOMDP{SVector{2, Int64}}) = 0.95
+POMDPs.discount(m::LaserTagPOMDP{SVector{2, Int64}}) = 0.997
 POMDPs.stateindex(m::LaserTagPOMDP{SVector{2, Int64}}, s) = LinearIndices((1:m.size[1], 1:m.size[2], 1:m.size[1], 1:m.size[2]))[s.robot..., s.target...]
 POMDPs.actionindex(m::LaserTagPOMDP{SVector{2, Int64}}, a) = actionind[a]
 POMDPs.obsindex(m::LaserTagPOMDP{SVector{2, Int64}}, o) = m.obsindices[(o.+1)...]::Int
@@ -135,6 +135,9 @@ function POMDPs.reward(m::LaserTagPOMDP, s, a)
 end
 
 #=
+include("LaserTagModule.jl")
+using .LaserTag
+
 using StaticArrays
 using POMDPs
 d = DiscreteLaserTagPOMDP();
@@ -149,27 +152,65 @@ solver = QMDPSolver(max_iterations=20,belres=1e-3,verbose=true)
 policy = solve(solver, d);
 a = action(policy,b)
 
+import POMDPSimulators:RolloutSimulator
+using ProgressMeter
+using Random
+using Statistics
+sim_rng = MersenneTwister(21)
+n_episodes = 1000
+max_steps = 100
+returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
+up = updater(policy);
+@showprogress for i in 1:n_episodes
+    ro = RolloutSimulator(max_steps=max_steps, rng=sim_rng)
+    returns[i] = simulate(ro, d, policy, up)
+end
+mean(returns)
+std(returns)/sqrt(n_episodes)
+
+
 using ARDESPOT
+
 lower_discrete = DefaultPolicyLB(solve(QMDPSolver(), d));
 function upper_discrete(m, b)
-    # dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
-    # closing_steps = div(dist, 2)
-    # if closing_steps > 1
-    #     return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
-    # else
-    #     return 100.0
-    # end
-    return 100.0
+    dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
+    closing_steps = div(dist, 2)
+    if closing_steps > 1
+        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
+    else
+        return 100.0
+    end
 end
 
 solver_discrete = DESPOTSolver(
     bounds = IndependentBounds(lower_discrete, upper_discrete, check_terminal=true, consistency_fix_thresh=0.1),
     K = 50,
-    D = 20,
     T_max = 0.5,
-)
+    default_action = :measure
+);
+
 planner_discrete = solve(solver_discrete, d);
 a = action(planner_discrete,b)
+
+import POMDPSimulators:RolloutSimulator
+import BeliefUpdaters:DiscreteUpdater
+using ParticleFilters
+using ProgressMeter
+using Random
+using Statistics
+sim_rng = MersenneTwister(2)
+n_episodes = 500
+max_steps = 100
+returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
+despot_pomdp = DiscreteLaserTagPOMDP();
+up = DiscreteUpdater(despot_pomdp);
+@showprogress for i in 1:n_episodes
+    ro = RolloutSimulator(max_steps=max_steps, rng=sim_rng)
+    returns[i] = simulate(ro, despot_pomdp, planner_discrete, up)
+end
+mean(returns)
+sqrt(var(returns))/sqrt(n_episodes)
+
 =#
 
 
@@ -192,7 +233,7 @@ function ContinuousLaserTagPOMDP(;size=(10, 7), n_obstacles=9, rng::AbstractRNG=
         robot_init = SVector(1+rand(rng)*size[1], 1+rand(rng)*size[2])
     end
 
-    obsindices = Array{Union{Nothing,Int}}(nothing, size[1], size[1], size[2], size[2])
+    obsindices = Array{Union{Nothing,Int}}(nothing, 2, size[1], size[1], size[2], size[2])
     for (ind, o) in enumerate(lasertag_observations(size))
         obsindices[(o.+1)...] = ind
     end
@@ -238,9 +279,50 @@ using .LaserTag
 using StaticArrays
 using POMDPs
 using ARDESPOT
-c = ContinuousLaserTagPOMDP();
 
-function lower_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::ScenarioBelief)
+c = ContinuousLaserTagPOMDP();
+function upper_continuous(m, b::ScenarioBelief)
+    dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
+    closing_steps = div(dist, 2)
+    if closing_steps > 1
+        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
+    else
+        return 100.0
+    end
+end
+
+solver_continuous = DESPOTSolver(
+    bounds = IndependentBounds(DefaultPolicyLB(RandomPolicy(c)), upper_continuous, check_terminal=true, consistency_fix_thresh=0.1),
+    K = 100,
+    D = 20,
+    T_max = 0.5,
+    default_action=:measure
+)
+planner_continuous = solve(solver_continuous, c);
+b = initialstate(c)
+a = action(planner_continuous,b)
+
+import POMDPSimulators:RolloutSimulator
+import BeliefUpdaters:DiscreteUpdater
+using ParticleFilters
+using ProgressMeter
+using Random
+using Statistics
+sim_rng = MersenneTwister(2)
+n_episodes = 50
+max_steps = 100
+returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
+despot_pomdp = c;
+up = DiscreteUpdater(despot_pomdp);
+@showprogress for i in 1:n_episodes
+    ro = RolloutSimulator(max_steps=max_steps, rng=sim_rng)
+    returns[i] = simulate(ro, despot_pomdp, planner_discrete, up)
+end
+mean(returns)
+sqrt(var(returns))/sqrt(n_episodes)
+
+
+function lower_continuous(pomdp, b::ScenarioBelief)
     return 0.0
     # return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
 end
@@ -248,22 +330,5 @@ function upper_continuous(pomdp::LaserTagPOMDP{SVector{2, Float64}}, b::Scenario
     return 100.0
 end
 
-function lower_continuous(pomdp, b::ScenarioBelief)
-    return 0.0
-    # return DefaultPolicyLB(RandomPolicy(pomdp, rng=MersenneTwister(14)))
-end
-function upper_continuous(pomdp, b::ScenarioBelief)
-    return 100.0
-end
-
-DES_solver = DESPOTSolver(
-    bounds = IndependentBounds(lower_continuous, upper_continuous, check_terminal=true, consistency_fix_thresh=0.1),
-    K = 100,
-    D = 20,
-    T_max = 0.5,
-)
-planner = solve(DES_solver, c);
-b = initialstate(c)
-a = action(planner,b)
 
 =#

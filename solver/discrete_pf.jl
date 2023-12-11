@@ -1,7 +1,6 @@
 include("new_solver.jl")
 
-function discrete_pf_animation(ac; num_particles=100)
-    test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=num_particles))
+function discrete_pf_animation(ac, test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=num_particles)); num_particles=100)
     reset!(test_env)
     target, robot_pos, particles = [], [], []
     a_d = []
@@ -35,49 +34,175 @@ function discrete_pf_animation(ac; num_particles=100)
         plot!([0.5+target[i][1]], [0.5+target[i][2]]; markershape=:star5, common...)
         plot!(0.5 .+ obs[1,:], 0.5 .+ obs[2,:]; markershape=:x, common...)
         a = idx2act[a_d[i][]]
-        plot!(; title = "a = $a, t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
+        plot!(; title = "a = $a, t = $i") 
     end
     gif(anim, fps = 1)
 end
 
-# This code should take ~3 minutes to run (plus precompile time)
-discount = 0.997
+
+env = VecEnv(n_envs=8) do 
+    LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100, size=(50,35), num_obstacles=100), reward_scale=1., max_steps=500)
+end
+reset!(env)
+observe(env)
+
+init = randn(Float32, 64, 2)/2
 solver = PPOSolver(; 
     env = LoggingWrapper(; discount, 
         env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100), reward_scale=1., max_steps=500)
+            LaserTagWrapper(
+                env=DiscreteLaserTagPFBeliefMDP(num_particles=100), 
+                reward_scale=1., max_steps=500
+            )
         end
     ),
     discount, 
     n_steps = 1_000_000,
-    traj_len = 256,
+    traj_len = 512,
     batch_size = 256,
     n_epochs = 4,
     kl_targ = 0.02,
     clipl2 = Inf32,
-    ent_coef = 0f0, #(0.0f0, 0.01f0),
+    ent_coef = 0.01f0,
     lr_decay = false,
-    vf_coef = 1.0,
+    lr = 10e-4,
+    vf_coef = 0.5,
     gae_lambda = 0.95,
-    burnin_steps = 50_000,
+    burnin_steps = 0,
     ac_kwargs = (
         critic_dims = [64,64], 
         actor_dims  = [64,64], 
-        critic_type = (:scalar, :categorical)[1], 
-        categorical_values = range(symlog(-2/(1-discount)), symlog(100), 200),
+        critic_type = :scalar, 
         critic_loss_transform = symlog,
         inv_critic_loss_transform = symexp,
         shared = Parallel(
-            vcat,
-            identity,
-            CGF(init=randn(Float32,64,2)/2)
-        ),
-        shared_out_size = 4 + 64,
+                vcat,
+                identity,
+                CGF(init=copy(init))
+            ),
     )
 )
 ac, info_log = solve(solver)
 
-plot_LoggingWrapper(solver.env)
+
+
+x = range(0, 1_000_000, 200)
+y = get_mean(solver.env, x)
+plot(x,y; label=false)
+y[end]
+
+w = ac.shared[2].weight
+
+plot(xlims=(-2,2), ylims=(-2,2))
+plot!(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false,)
+plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false,)
+
+env = LaserTagWrapper(
+    env=DiscreteLaserTagPFBeliefMDP(size=(15, 15), n_obstacles=30, num_particles=100), 
+    reward_scale=1., max_steps=1_000
+)
+reset!(env)
+
+o = observe(env)
+ac.shared(o)[2:end] |> extrema
+
+ac.shared[2].weight |> extrema
+
+
+observe(solver.env)
+
+
+
+p = plot()
+for (solver, label) in zip(solver_vec, [1, 4, 16, 64])
+    x = range(0, 1_000_000, 200)
+    y = get_mean(solver.env, x)
+    plot!(p,x,y; label)
+end
+plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,1_000_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
+display(p)
+
+discount = 0.997
+solver_vec = PPOSolver[]
+for n_sample in [1, 4, 16, 64]
+    init = randn(Float32,n_sample,2)/2
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=8) do 
+                LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100, size=(100,70), num_obstacles=100), reward_scale=1., max_steps=500)
+            end
+        ),
+        discount, 
+        n_steps = 1_000_000,
+        traj_len = 512,
+        batch_size = 256,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = Inf32,
+        ent_coef = 0.01f0,
+        lr_decay = false,
+        lr = 10e-4,
+        vf_coef = 0.5,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [64,64], 
+            critic_type = (:scalar, :categorical)[1], 
+            categorical_values = range(symlog(-2/(1-discount)), symlog(100), 200),
+            critic_loss_transform = symlog,
+            inv_critic_loss_transform = symexp,
+            shared = Parallel(
+                vcat,
+                identity,
+                CGF(init=copy(init))
+            ),
+        )
+    )
+    push!(solver_vec, solver)
+    ac, info_log = solve(solver)
+
+    p = plot()
+    for (solver, label) in zip(solver_vec, [1, 4, 16, 64])
+        x = range(0, 1_000_000, 200)
+        y = get_mean(solver.env, x)
+        plot!(p,x,y; label)
+    end
+    plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,1_000_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
+    display(p)
+end
+
+# x is 2d, [0,1] x [0,1]
+# look at mgf for x uniform in each quadrant
+x1 = [0.5, 0] .+ rand(2, 1000)/2
+
+f(x,y) = log.((exp.([x  y]*x1)*fill(1/size(x1,2), size(x1,2))))[]
+
+x = y = range(-5, stop = 5, length = 100)
+surface(x, y, f)
+
+
+
+plot_LoggingWrapper(solver_vec[1].env)
+
+p = plot()
+for (solver, label) in zip(solver_vec, [1, 2, 4, 8, 16, 32, 64])
+    x = range(0, 500_000, 200)
+    y = get_mean(solver.env, x)
+    plot!(p,x,y; label)
+end
+plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,500_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
+
+savefig("solver/figures/discrete_pf_sample.png")
+
+init
+w = solver.ac.shared[2].weight
+
+plot(xlims=(-2,2), ylims=(-2,2))
+plot!(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false,)
+plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false,)
+
+
 
 discrete_pf_animation(solver.ac; num_particles=100)
 

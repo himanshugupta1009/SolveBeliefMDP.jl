@@ -34,45 +34,119 @@ end
 
 # This code should take ~3 minutes to run (plus precompile time)
 discount = 0.997
-solver = PPOSolver(; 
-    env = LoggingWrapper(; discount, 
-        env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=1000)
-        end
-    ),
-    discount, 
-    n_steps = 10_000_000,
-    traj_len = 512,
-    batch_size = 256,
-    n_epochs = 4,
-    kl_targ = 0.02,
-    clipl2 = Inf32,
-    ent_coef = (0.01f0, 0.01f0),
-    lr_decay = true,
-    vf_coef = 1.0,
-    gae_lambda = 0.95,
-    burnin_steps = 0,
-    ac_kwargs = (
-        critic_dims = [64,64], 
-        actor_dims  = [], 
-        shared_actor_dims  = [64,64], 
-        critic_type = (:scalar, :categorical)[1], 
-        categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
-        critic_loss_transform = symlog,
-        inv_critic_loss_transform = symexp,
-        shared = Parallel(
-            vcat,
-            identity,
-            Chain(
-                x->reshape(x,10,7,:),
-                Flux.flatten
-            )# CGF(init=randn(Float32,64,2)/2)
-        ),
-        shared_out_size = 70+2, # 4+64,
-        squash = true
-    )
+
+p1 = plot(; 
+    xlabel="Steps", title="Average Discounted Reward",
+    xlims = (0, 1_000_000),
+    ylims = (-150, 100),
+    yticks = -150:25:100
 )
-ac, info_log = solve(solver)
+solver_vec1 = PPOSolver[]
+for _ in 1:2
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=8) do 
+                LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=500)
+            end
+        ),
+        discount, 
+        n_steps = 1_000_000,
+        traj_len = 512,
+        batch_size = 256,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = Inf32,
+        ent_coef = (0.01f0, 0.01f0),
+        lr_decay = true,
+        lr = 1e-3,
+        vf_coef = 1.0,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [256,256], 
+            actor_dims  = [], 
+            shared_actor_dims  = [64,64], 
+            critic_type = (:scalar, :categorical)[1], 
+            categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
+            critic_loss_transform = symlog,
+            inv_critic_loss_transform = symexp,
+            shared = Parallel(
+                vcat,
+                identity,
+                Chain(
+                    x->reshape(x,10,7,:),
+                    Flux.flatten
+                )# CGF(init=randn(Float32,64,2)/2)
+            ),
+            squash = true
+        )
+    )
+    push!(solver_vec1, solver)
+    ac, info_log = solve(solver)
+end
+plot_seed_ci!(p1, solver_vec1; xmax=1_000_000, label=nothing, c=1)
+
+
+
+discount = 0.997
+
+p2 = plot(; 
+    xlabel="Steps", title="Average Discounted Reward",
+    xlims = (0, 1_000_000),
+    ylims = (-150, 100),
+    yticks = -150:25:100
+)
+solver_vec2 = PPOSolver[]
+for _ in 1:5
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=8) do 
+                LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=1000)
+            end
+        ),
+        discount, 
+        n_steps = 5_000_000,
+        traj_len = 512,
+        batch_size = 256,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = Inf32,
+        ent_coef = (0.01f0, 0.01f0),
+        lr_decay = true,
+        lr = 1e-3,
+        vf_coef = 1.0,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [], 
+            shared_actor_dims  = [64,64], 
+            critic_type = (:scalar, :categorical)[1], 
+            categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
+            critic_loss_transform = symlog,
+            inv_critic_loss_transform = symexp,
+            shared = Parallel(
+                vcat,
+                identity,
+                Chain(
+                    x->reshape(x,10,7,:),
+                    Flux.flatten
+                )# CGF(init=randn(Float32,64,2)/2)
+            ),
+            squash = true
+        )
+    )
+    push!(solver_vec2, solver)
+    ac, info_log = solve(solver)
+end
+plot_seed_ci!(p2, solver_vec2; xmax=5_000_000, label=nothing, c)
+
+
+
+
+
+
+
 
 plot_LoggingWrapper(solver.env)
 savefig("solver/continuous_exact.png")

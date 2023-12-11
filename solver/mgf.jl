@@ -44,30 +44,27 @@ function (f::CGF)(x::AbstractArray{<:Real, 3})
     return log.(mgf)
 end
 
-# function ChainRulesCore.rrule(f::MGF, x, p)
-#     w = f.weight
+using ChainRulesCore
+function ChainRulesCore.rrule(f::CGF, x::AbstractArray{<:Real, 3})
+    w = f.weight
 
-#     exp_wx = exp.(batched_mul(w, x))
-#     mgf = batched_vec(exp_wx, p)
-    
-#     cgf = log.(mgf) # cumulant generating function
-#     # make more stable with max exp?
+    exp_wx = exp.(batched_mul(w, x))
+    mgf = dropdims(sum(exp_wx; dims=2); dims=2) ./ size(x,2)
+    cgf = log.(mgf) 
 
-#     function MGF_pullback(Ȳ)
-#         ỹ = Ȳ ./ mgf
+    function CGF_pullback(Ȳ)
+        ỹ = Ȳ ./ mgf
 
-#         ỹ_3d = reshape(ỹ, (size(ỹ,1),1,size(ỹ,2)))
-#         p_3d = reshape(p, (1,size(p,1),size(p,2)))
+        ỹ_3d = reshape(ỹ, (size(ỹ,1),1,size(ỹ,2)))
+        p_3d = fill(1f0, (1,size(x,2),size(x,3)))
 
-#         temp1 = exp_wx .* batched_mul(ỹ_3d, p_3d)
+        temp1 = exp_wx .* batched_mul(ỹ_3d, p_3d)
 
-#         X̄ = batched_mul(transpose(w), temp1)
-#         p̄ = batched_vec(batched_transpose(exp_wx), ỹ)
-#         W̄_batch = batched_mul(temp1, batched_transpose(x))
-#         W̄ = dropdims(sum(W̄_batch; dims=3); dims=3)
+        W̄_batch = batched_mul(temp1, batched_transpose(x))
+        W̄ = dropdims(sum(W̄_batch; dims=3); dims=3)
 
-#         return Tangent{MGF}(; weight=W̄), X̄, p̄
-#     end
+        return Tangent{CGF}(; weight=W̄), ZeroTangent()
+    end
 
-#     return cgf, MGF_pullback
-# end
+    return cgf, CGF_pullback
+end

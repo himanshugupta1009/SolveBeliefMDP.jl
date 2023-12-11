@@ -20,7 +20,7 @@ function discrete_pf_animation(ac, test_env = LaserTagWrapper(env=DiscreteLaserT
 
     f(x) = max(0, 1+log10(x)/3)
     obs = stack([test_env.env.obstacles...])
-    common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10, xticks=1:10, ticks=1:7)
+    common = (label=false, seriestype=:scatter, markercolor=:black, markersize=10, xticks=1:10, yticks=1:7)
     anim = Plots.@animate for i in eachindex(particles)
         grid = zeros(10,7)
         for p in particles[i]
@@ -39,14 +39,168 @@ function discrete_pf_animation(ac, test_env = LaserTagWrapper(env=DiscreteLaserT
     gif(anim, fps = 1)
 end
 
-
-env = VecEnv(n_envs=8) do 
-    LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100, size=(50,35), num_obstacles=100), reward_scale=1., max_steps=500)
+function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
+    s = wrap.env.state
+    o1 = Box(Float32, length(s.robot_pos))
+    o2 = Box(Float32, (2, length(s.belief_target.collection.particles) ))
+    TupleSpace(o1, o2)
 end
-reset!(env)
-observe(env)
+function RL.observe(v_env::VecEnv{<:LaserTagWrapper{<:ParticleBeliefLaserTag}})
+    sz = v_env.envs[1].env.size
 
-init = randn(Float32, 64, 2)/2
+    pos = stack(v_env.envs) do wrap
+        robot_pos = wrap.env.state.robot_pos
+        convert(AbstractArray{Float32}, robot_pos)
+    end ./ sz
+
+    belief = stack(v_env.envs) do wrap
+        particles = wrap.env.state.belief_target.collection.particles
+        particle_arr = reinterpret(reshape, Int, particles)
+        convert(AbstractArray{Float32}, particle_arr)
+    end ./ sz
+
+    return (pos, belief)
+end
+function RL.observe(env::LaserTagWrapper{<:ParticleBeliefLaserTag})
+    sz = env.env.size
+
+    robot_pos = env.env.state.robot_pos
+    pos = convert(AbstractArray{Float32}, robot_pos) ./ sz
+
+    particles = env.env.state.belief_target.collection.particles
+    particle_arr = reinterpret(reshape, Int, particles)
+    belief = convert(AbstractArray{Float32}, particle_arr) ./ sz
+
+    return (pos, belief)
+end
+
+
+solver_vec = PPOSolver[]
+discount = 0.997
+for fun in [MGF, CGF], mgf_scale in [0.01f0, 0.1f0, 1f0]
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=8) do 
+                LaserTagWrapper(
+                    env=DiscreteLaserTagPFBeliefMDP(num_particles=100), 
+                    reward_scale=1., max_steps=500
+                )
+            end
+        ),
+        discount, 
+        n_steps = 5_000_000,
+        traj_len = 512,
+        batch_size = 256,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = Inf32,
+        ent_coef = 0.01f0,
+        lr_decay = true,
+        lr = 10e-4,
+        vf_coef = 0.5,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [64,64], 
+            critic_type = :scalar, 
+            critic_loss_transform = symlog,
+            inv_critic_loss_transform = symexp,
+            shared = Parallel(
+                    vcat,
+                    identity,
+                    fun(init=mgf_scale*randn(Float32, 64, 2))
+                ),
+        )
+    )
+    push!(solver_vec, solver)
+    ac, info_log = solve(solver)
+
+    bson("solver/data/mgf_cgf.bson", Dict(:solver_vec=>solver_vec))
+end
+
+p = plot()
+for (solver, label) in zip(solver_vec, ["MGF, sigma=0.01", "MGF, sigma=0.1", "MGF, sigma=1.0", "CGF, sigma=0.01", "CGF, sigma=0.1", "CGF, sigma=1.0"])
+    x = range(0, 5_000_000, 500)
+    y = get_mean(solver.env, x)
+    plot!(p, x,y; label)
+end
+plot(p; ylims=(-150,100), yticks=-150:25:100, xlims=(0,5e6), title="MGF and CGF over Varrying Initial Covariance", right_margin = 0.5Plots.cm)
+savefig("mgf_cgf_5m.png")
+
+for (solver, label) in zip(solver_vec, ["MGF, 0.01", "MGF, 0.1", "MGF, 1.0", "CGF, 0.01", "CGF, 0.1", "CGF, 1.0"])
+    w = solver.ac.shared[2].weight
+    sqrt.(eigvals(cov(w))) |> display
+end
+
+for (solver, label) in zip(solver_vec, ["MGF, 0.01", "MGF, 0.1", "MGF, 1.0", "CGF, 0.01", "CGF, 0.1", "CGF, 1.0"])
+    w = solver.ac.shared[2].weight
+    mean(w; dims=1) |> display
+end
+
+mapreduce(solver->sqrt.(eigvals(cov(solver.ac.shared[2].weight))), hcat, solver_vec)
+
+
+using LinearAlgebra
+eigvals
+
+plot(x,y)
+
+w = solver_vec[1].ac.shared[2].weight
+plot(w[:,1], w[:,2]; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label="weights")
+xy = sqrt(cov(w)) *( [x'; y'] ) .+ mean(w; dims=1)'
+plot!(xy[1,:], xy[2,:]; label="95% confidence")
+
+p = plot()
+for (solver, label, c) in zip(solver_vec, ["MGF, sigma=0.01", "MGF, sigma=0.1", "MGF, sigma=1.0", "CGF, sigma=0.01", "CGF, sigma=0.1", "CGF, sigma=1.0"], [1,2,3,4,5,6])
+    x = cos.(range(0,2pi,100)) * sqrt(5.991)
+    y = sin.(range(0,2pi,100)) * sqrt(5.991)
+    w = solver.ac.shared[2].weight
+    plot!(p, w[:,1], w[:,2]; seriestype=:scatter, markercolor=c, markershape=:circle, markersize=2, label=label, c)
+    xy = sqrt(cov(w)) *( [x'; y'] ) .+ mean(w; dims=1)'
+    plot!(p, xy[1,:], xy[2,:]; label=false, c)
+end
+plot(p; legend=:outerright, title="Weights After 5x10^6 Steps")
+savefig("mgf_cgf_weight.png")
+
+
+ 
+w = ac.shared[2].weight
+
+plot(xlims=(-2,2), ylims=(-2,2))
+plot!(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false,)
+plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false,)
+
+
+
+
+ac = solver_vec[1].ac
+
+n_particles = [5, 10, 50, 100, 500, 1000]
+vals = zeros(length(n_particles))
+errs = zeros(length(n_particles))
+for i in 1:length(n_particles)
+    println(i)
+    test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=n_particles[i]))
+    results = [evaluate(test_env, ac) for _ in 1:1000]
+    vals[i] = mean(results)
+    errs[i] = std(results)/sqrt(length(results))
+end
+
+plot(
+    n_particles,vals; 
+    title="Test Time Accuracy of Agent Trained on 100 Particles",
+    yerror=errs, xaxis=:log, label=false, xlabel="Number of Particles at Test time", ylabel="Returns", 
+    xticks=(n_particles, string.(n_particles)), xlims=(3,2_000),
+    ylims=(-50,100), yticks=-50:25:100,
+    right_margin = 0.5Plots.cm
+)
+savefig("mgf_particles_test_comparison.png")
+
+
+
+## Test runtime
+discount = 0.997
 solver = PPOSolver(; 
     env = LoggingWrapper(; discount, 
         env = VecEnv(n_envs=8) do 
@@ -57,14 +211,14 @@ solver = PPOSolver(;
         end
     ),
     discount, 
-    n_steps = 1_000_000,
+    n_steps = 5_000_000,
     traj_len = 512,
     batch_size = 256,
     n_epochs = 4,
     kl_targ = 0.02,
     clipl2 = Inf32,
     ent_coef = 0.01f0,
-    lr_decay = false,
+    lr_decay = true,
     lr = 10e-4,
     vf_coef = 0.5,
     gae_lambda = 0.95,
@@ -75,240 +229,129 @@ solver = PPOSolver(;
         critic_type = :scalar, 
         critic_loss_transform = symlog,
         inv_critic_loss_transform = symexp,
-        shared = Parallel(
-                vcat,
-                identity,
-                CGF(init=copy(init))
-            ),
+        shared = (x) -> x[1],
+
     )
 )
 ac, info_log = solve(solver)
 
-
-
-x = range(0, 1_000_000, 200)
+x = range(0, 5_000_000, 500)
 y = get_mean(solver.env, x)
-plot(x,y; label=false)
-y[end]
-
-w = ac.shared[2].weight
-
-plot(xlims=(-2,2), ylims=(-2,2))
-plot!(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false,)
-plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false,)
-
-env = LaserTagWrapper(
-    env=DiscreteLaserTagPFBeliefMDP(size=(15, 15), n_obstacles=30, num_particles=100), 
-    reward_scale=1., max_steps=1_000
-)
-reset!(env)
-
-o = observe(env)
-ac.shared(o)[2:end] |> extrema
-
-ac.shared[2].weight |> extrema
-
-
-observe(solver.env)
-
-
-
-p = plot()
-for (solver, label) in zip(solver_vec, [1, 4, 16, 64])
-    x = range(0, 1_000_000, 200)
-    y = get_mean(solver.env, x)
-    plot!(p,x,y; label)
-end
-plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,1_000_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
-display(p)
-
-discount = 0.997
-solver_vec = PPOSolver[]
-for n_sample in [1, 4, 16, 64]
-    init = randn(Float32,n_sample,2)/2
-    solver = PPOSolver(; 
-        env = LoggingWrapper(; discount, 
-            env = VecEnv(n_envs=8) do 
-                LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100, size=(100,70), num_obstacles=100), reward_scale=1., max_steps=500)
-            end
-        ),
-        discount, 
-        n_steps = 1_000_000,
-        traj_len = 512,
-        batch_size = 256,
-        n_epochs = 4,
-        kl_targ = 0.02,
-        clipl2 = Inf32,
-        ent_coef = 0.01f0,
-        lr_decay = false,
-        lr = 10e-4,
-        vf_coef = 0.5,
-        gae_lambda = 0.95,
-        burnin_steps = 0,
-        ac_kwargs = (
-            critic_dims = [64,64], 
-            actor_dims  = [64,64], 
-            critic_type = (:scalar, :categorical)[1], 
-            categorical_values = range(symlog(-2/(1-discount)), symlog(100), 200),
-            critic_loss_transform = symlog,
-            inv_critic_loss_transform = symexp,
-            shared = Parallel(
-                vcat,
-                identity,
-                CGF(init=copy(init))
-            ),
-        )
+plot(x,y; 
+    label=false, ylims=(-150,100), yticks=-150:25:100, xlims=(0,5e6), right_margin = 0.5Plots.cm,
+    title="Returns with No Target Belief", xlabel="Steps"
     )
-    push!(solver_vec, solver)
-    ac, info_log = solve(solver)
+savefig("solver/figures/no_belief.png")
 
-    p = plot()
-    for (solver, label) in zip(solver_vec, [1, 4, 16, 64])
-        x = range(0, 1_000_000, 200)
-        y = get_mean(solver.env, x)
-        plot!(p,x,y; label)
+
+bson("solver/data/no_belief.bson", Dict(:solver=>solver, :ac=>ac, :info_log=>info_log))
+
+# train with This
+
+
+env = LoggingWrapper(; discount, 
+    env = VecEnv(n_envs=8) do 
+        LaserTagWrapper(
+            env=DiscreteLaserTagPFBeliefMDP(num_particles=100), 
+            reward_scale=1., max_steps=500
+        )
     end
-    plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,1_000_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
-    display(p)
-end
-
-# x is 2d, [0,1] x [0,1]
-# look at mgf for x uniform in each quadrant
-x1 = [0.5, 0] .+ rand(2, 1000)/2
-
-f(x,y) = log.((exp.([x  y]*x1)*fill(1/size(x1,2), size(x1,2))))[]
-
-x = y = range(-5, stop = 5, length = 100)
-surface(x, y, f)
-
-
-
-plot_LoggingWrapper(solver_vec[1].env)
-
-p = plot()
-for (solver, label) in zip(solver_vec, [1, 2, 4, 8, 16, 32, 64])
-    x = range(0, 500_000, 200)
-    y = get_mean(solver.env, x)
-    plot!(p,x,y; label)
-end
-plot!(p; right_margin = 0.5Plots.cm, xlabel="Steps", xlims=(0,500_000), yticks = -150:25:100, ylims=(-150,100), title="MGF Sample Count")
-
-savefig("solver/figures/discrete_pf_sample.png")
-
-init
-w = solver.ac.shared[2].weight
-
-plot(xlims=(-2,2), ylims=(-2,2))
-plot!(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false,)
-plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false,)
-
-
-
-discrete_pf_animation(solver.ac; num_particles=100)
-
-bson("solver/discrete_exact.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
-
-
-n_particles = [5, 10, 50, 100, 500, 1000]
-vals = zeros(length(n_particles))
-errs = zeros(length(n_particles))
-for i in 1:length(n_particles)
-    println(i)
-    test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=n_particles[i]))
-    results = [evaluate(test_env, solver.ac) for _ in 1:1000]
-    vals[i] = mean(results)
-    errs[i] = std(results)/sqrt(length(results))
-end
-
-plot(
-    n_particles,vals; 
-    yerror=errs, xaxis=:log, label=false, xlabel="Number of Particles", ylabel="Returns", xticks=(n_particles, string.(n_particles))
 )
-savefig("particles.png")
+
+test_env = LaserTagWrapper(
+    env=DiscreteLaserTagPFBeliefMDP(num_particles=100), 
+    reward_scale=1., max_steps=500
+)
+
+ac_old = solver.ac
+ac_new = ActorCritic(env; 
+    critic_dims = [64,64], 
+    actor_dims  = [64,64], 
+    critic_type = :scalar, 
+    critic_loss_transform = symlog,
+    inv_critic_loss_transform = symexp,
+    shared = Parallel(
+            vcat,
+            identity,
+            MGF(init=0.1f0*randn(Float32, 64, 2))
+        ),
+)
+
+reset!(env)
+opt = Flux.setup(solver.opt_0, ac_new)
+buffer = Algorithms.Buffer(env, 512)
+
+results = Float64[]
+
+for _ in 1:length(results)
+    Algorithms.fill_buffer!(env, buffer, ac_old)
+
+    for idxs in Iterators.partition(randperm(length(buffer)), 256)
+        function temp_fun(x)
+            y = reshape(x, size(x)[1:end-2]..., :) # flatten
+            copy(selectdim(y, ndims(y), idxs)) # copy important!        
+        end
+        temp_fun(x::Tuple) = temp_fun.(x)
+
+        ac_input = Algorithms.ACInput(observation = temp_fun(buffer.s))
+
+        old_actor_out, old_critic_out = get_actionvalue(ac_old, Algorithms.ACInput(; observation = temp_fun(buffer.s)))
+        target_action = Flux.onehotbatch(old_actor_out.action, 1:9)
+        critic_targets = old_critic_out.critic_out
 
 
+        grads = Flux.gradient(ac_new) do ac_new
+            shared_out = Algorithms.get_shared(ac_new.shared, ac_input.observation)
 
-w = solver.ac.shared[2].weight
-plot(w[:,1]', w[:,2]'; seriestype=:scatter, markercolor=:blue, markershape=:circle, markersize=2, label=false, xlims=(-2,2), ylims=(-2,2))
+            actor_out = ac_new.actor.actor(shared_out)
+            probs = softmax(actor_out; dims=1)
+            actor_loss = Flux.logitcrossentropy(actor_out, target_action)
 
-mean(w; dims=1)
+            actor_out, critic_out = get_actionvalue(ac_new, ac_input)
+            value_loss = 0.5f0 * Algorithms.get_criticloss(ac_new.critic, critic_out, critic_targets)   
+            return value_loss + actor_loss
+        end
 
+        Flux.update!(opt, ac_new, grads[1])
+    end
 
-using LinearAlgebra
-eigvals(cov(w))
-
-x = randn(Float32,64,2)/2
-plot!(x[:,1]', x[:,2]'; seriestype=:scatter, markercolor=:red, markershape=:circle, markersize=2, label=false, xlims=(-2,2), ylims=(-2,2))
-
-
-#####
-## Mean and covariance
-#####
-
-function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
-    s = wrap.env.state
-    Box(Float32, 3*length(s.robot_pos))
+    push!(results, mean(evaluate(test_env, ac_new) for _ in 1:100))
 end
-function RL.observe(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
-    s = wrap.env.state
-    pos = convert(AbstractArray{Float32}, s.robot_pos)
-    belief = convert(AbstractArray{Float32}, stack(s.belief_target.collection.particles))
-    mu = mean(belief; dims=2)
-    sigma = std(belief; dims=2)
-    o = [
-        vec(pos) ./ wrap.env.size; 
-        vec(mu) ./ wrap.env.size;
-        vec(sigma) ./ wrap.env.size] 
-    return o
-end
 
-# This code should take ~3 minutes to run (plus precompile time)
-discount = 0.997
+plot(results)
+# 200 epochs is good
+
+ac = deepcopy(ac_new)
+
 solver = PPOSolver(; 
     env = LoggingWrapper(; discount, 
         env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100), reward_scale=1., max_steps=500)
+            LaserTagWrapper(
+                env=DiscreteLaserTagPFBeliefMDP(num_particles=100), 
+                reward_scale=1., max_steps=500
+            )
         end
     ),
     discount, 
-    n_steps = 1_000_000,
-    traj_len = 256,
+    n_steps = 500_000,
+    traj_len = 512,
     batch_size = 256,
     n_epochs = 4,
     kl_targ = 0.02,
     clipl2 = Inf32,
-    ent_coef = 0f0, #(0.0f0, 0.01f0),
+    ent_coef = 0.01f0,
     lr_decay = false,
-    vf_coef = 1.0,
+    lr = 4e-4,
+    vf_coef = 0.5,
     gae_lambda = 0.95,
-    burnin_steps = 50_000,
-    ac_kwargs = (
-        critic_dims = [64,64], 
-        actor_dims  = [64,64], 
-        critic_type = (:scalar, :categorical)[1], 
-        categorical_values = range(symlog(-2/(1-discount)), symlog(100), 200),
-        critic_loss_transform = symlog,
-        inv_critic_loss_transform = symexp,
-    )
+    burnin_steps = 0,
+    ac = ac
 )
 ac, info_log = solve(solver)
 
-plot_LoggingWrapper(solver.env)
 
-discrete_pf_animation(solver.ac; num_particles=100)
+x = range(0, 500_000, 200)
+y = get_mean(solver.env, x)
+plot(x,y)
 
-n_particles = [5, 10, 50, 100, 500, 1000]
-vals = zeros(length(n_particles))
-errs = zeros(length(n_particles))
-for i in 1:length(n_particles)
-    println(i)
-    test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=n_particles[i]))
-    results = [evaluate(test_env, solver.ac) for _ in 1:1000]
-    vals[i] = mean(results)
-    errs[i] = std(results)/sqrt(length(results))
-end
-plot(
-    n_particles,vals; 
-    yerror=errs, xaxis=:log, label=false, xlabel="Number of Particles", ylabel="Returns", xticks=(n_particles, string.(n_particles))
-)
-savefig("particles.png")
+results[end]

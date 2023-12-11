@@ -56,11 +56,8 @@ function ChainRulesCore.rrule(f::CGF, x::AbstractArray{<:Real, 3})
         ỹ = Ȳ ./ mgf
 
         ỹ_3d = reshape(ỹ, (size(ỹ,1),1,size(ỹ,2)))
-        p_3d = fill(1f0, (1,size(x,2),size(x,3)))
 
-        temp1 = exp_wx .* batched_mul(ỹ_3d, p_3d)
-
-        W̄_batch = batched_mul(temp1, batched_transpose(x))
+        W̄_batch = batched_mul(exp_wx .* ỹ_3d, batched_transpose(x))
         W̄ = dropdims(sum(W̄_batch; dims=3); dims=3)
 
         return Tangent{CGF}(; weight=W̄), ZeroTangent()
@@ -68,3 +65,26 @@ function ChainRulesCore.rrule(f::CGF, x::AbstractArray{<:Real, 3})
 
     return cgf, CGF_pullback
 end
+function ChainRulesCore.rrule(f::MGF, x::AbstractArray{<:Real, 3})
+    w = f.weight
+
+    wx = batched_mul(w, x)
+    exp_wx = wx .= exp.(wx)
+
+    mgf = dropdims(sum(exp_wx; dims=2); dims=2) ./ size(x,2)
+
+    function MGF_pullback(Ȳ)
+        ỹ = Ȳ
+
+        ỹ_3d = reshape(ỹ, (size(ỹ,1),1,size(ỹ,2)))
+
+        W̄_batch = batched_mul(exp_wx .* ỹ_3d, batched_transpose(x))
+        W̄ = dropdims(sum(W̄_batch; dims=3); dims=3)
+
+        return Tangent{MGF}(; weight=W̄), ZeroTangent()
+    end
+
+    return mgf, MGF_pullback
+end
+
+

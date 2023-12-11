@@ -150,7 +150,7 @@ function evaluate(test_env, ac; discount=0.997)
     r = 0.0
     for t in 1:1000
         s = observe(test_env)
-        a = ac(s)
+        a = get_actionvalue(ac, Algorithms.ACInput(observation = s))[1].action
         r += act!(test_env, a) * discount ^ (t-1)
         terminated(test_env) && break
     end

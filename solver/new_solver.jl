@@ -95,14 +95,23 @@ RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower
 RL.act!(::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"
 RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractArray, <:AbstractArray}) = act!(wrap, (vec(a[1]),a[2][]))
 function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractVector, <:Integer})
+    a_c, a_d = a
+
+    if length(a_c) == 1
+        x = cos(pi*a_c[])
+        y = sin(pi*a_c[])
+        a_c = [x,y] ./ max(abs(x), abs(y))
+    end
+
     wrap.steps += 1
-    if a[2] == 1
+    if a_d == 1
         r = act!(wrap.env, :measure)
     else
-        r = act!(wrap.env, a[1])
+        r = act!(wrap.env, a_c)
     end
     r * convert(typeof(r), wrap.reward_scale)
 end
+
 
 # RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0], upper=[1f0]), Discrete(2))
 # RL.act!(::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"

@@ -82,59 +82,77 @@ end
 steps
 
 # This code should take ~3 minutes to run (plus precompile time)
-discount = 0.997
+for (file, discount) in zip(["solver/data/continuous_exact_10_99.bson", "solver/data/continuous_exact_10_997.bson"], [0.99, 0.997])
+    solver_vec = PPOSolver[]
+    for _ in 1:10
+        solver = PPOSolver(; 
+            env = LoggingWrapper(; discount, 
+                env = VecEnv(n_envs=8) do 
+                    LaserTagWrapper(
+                        env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000
+                    )
+                end
+            ),
+            discount, 
+            n_steps = 10_000_000,
+            traj_len = 512,
+            batch_size = 256,
+            n_epochs = 4,
+            kl_targ = 0.02,
+            clipl2 = Inf32,
+            ent_coef = (0.01f0, 0.01f0),
+            lr_decay = true,
+            lr = 3e-4,
+            vf_coef = 1.0,
+            gae_lambda = 0.95,
+            burnin_steps = 0,
+            ac_kwargs = (
+                critic_dims = [256,256], 
+                actor_dims  = [64,64], 
+                shared_actor_dims  = [], 
+                critic_type = (:scalar, :categorical)[1], 
+                categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
+                critic_loss_transform = symlog,
+                inv_critic_loss_transform = symexp,
+                shared = Parallel(
+                    vcat,
+                    identity,
+                    Chain(
+                        x->reshape(x,10,7,:),
+                        Flux.flatten
+                    )
+                ),
+                squash = true,
+                sde=true
+            )
+        )
+        push!(solver_vec, solver)
+        ac, info_log = solve(solver)
+    end
+    bson(file, Dict(:solver_vec=>solver_vec))
+end
+
+
 p = plot(title="Continuous - Exact Belief - 1D Action", right_margin = 0.5Plots.cm,
 ylims=(-350,100), yticks=-350:50:100, legend=:outerright, xlims=(0,1e6), size=(700,400))
-
-
-solver = PPOSolver(; 
-    env = LoggingWrapper(; discount, 
-        env = VecEnv(n_envs=16) do 
-            LaserTagWrapper(
-                env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000
-            )
-        end
-    ),
-    discount, 
-    n_steps = 5_000_000,
-    traj_len = 512,
-    batch_size = 512,
-    n_epochs = 4,
-    kl_targ = 0.02,
-    clipl2 = Inf32,
-    ent_coef = (0.01f0, 0.01f0),
-    lr_decay = true,
-    lr = 3e-4,
-    vf_coef = 1.0,
-    gae_lambda = 0.95,
-    burnin_steps = 50_000,
-    ac_kwargs = (
-        critic_dims = [256,256], 
-        actor_dims  = [64,64], 
-        shared_actor_dims  = [], 
-        critic_type = (:scalar, :categorical)[1], 
-        categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
-        critic_loss_transform = symlog,
-        inv_critic_loss_transform = symexp,
-        shared = Parallel(
-            vcat,
-            identity,
-            Chain(
-                x->reshape(x,10,7,:),
-                Flux.flatten
-            )
-        ),
-        squash = true
-    )
-)
-ac, info_log = solve(solver)
 
 x = range(0, solver.n_steps, 500)
 y = get_mean(solver.env, x)
-p = plot(title="Continuous - Exact Belief - 1D Action", right_margin = 0.5Plots.cm,
-ylims=(-350,100), yticks=-350:50:100, legend=:outerright, xlims=(0,1e6), size=(700,400))
 plot!(p,x,y; label=nothing, xlims=(0,solver.n_steps))
-display(p)
+
+solver.ac.actor.actors[1]
+
+plot(info_log[:kl_est]...)
+
+
+env = solver.env
+s = observe(env)
+action_mask = if provided(valid_action_mask, env) valid_action_mask(env) end
+ac_input = Algorithms.ACInput(; observation = s, action_mask = action_mask)
+actor_out, critic_out = get_actionvalue(solver.ac, ac_input)
+return (; s, action_mask, a=actor_out.action, a_logprob=actor_out.log_prob, critic_out.value)
+actor_out.action[1]
+
 
     
 plot(p; ylims=(-350,100), yticks=-350:50:100, legend=:outerright, xlims=(0,1e6), size=(700,400))
@@ -221,9 +239,14 @@ vals = mean(results)
 errs = std(results)/sqrt(length(results))
 
 
-data = BSON.load("solver/continuous_exact_10.bson")
 
 
-continuous_exact_animation(data[:ac])
+p = plot()
+data = BSON.load("solver/data/continuous_exact_10_99.bson")
+plot_seed_ci!(p, data[:solver_vec]; xmax=10_000_000, Nx=500, c=1, label="gamma = 0.99")
+data = BSON.load("solver/data/continuous_exact_10_997.bson")
+plot_seed_ci!(p, data[:solver_vec]; xmax=10_000_000, Nx=500, c=2, label="gamma = 0.997")
+plot(p; right_margin = 0.5Plots.cm, xlabel="Steps", ylabel="Undiscounted Returns", title="Continuous Action, Exact Belief, SDE")
+savefig("solver/figures/10m_sde.png")
 
-
+solver_vec[1].env

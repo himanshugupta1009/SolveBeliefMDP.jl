@@ -1373,9 +1373,7 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.RLAlgorithms]]
 deps = ["CUDA", "ChainRules", "CommonRLInterface", "Distributions", "Flux", "LinearAlgebra", "Parameters", "ProgressMeter", "Random", "Reexport", "StaticArrays", "Statistics", "Tricks", "cuDNN"]
-git-tree-sha1 = "afa0e943e1e91e4eb68129300aba9061442f39ca"
-repo-rev = "main"
-repo-url = "https://github.com/the-one-and-only-jackson/RLAlgorithms.jl"
+path = "C:\\Users\\geekj\\.julia\\dev\\RLAlgorithms"
 uuid = "346a53a9-6fe4-477e-bca6-f212bdefdafc"
 version = "0.1.0"
 

@@ -169,7 +169,7 @@ end
 
 function get_mean(env, x; k=1)
     hist = get_info(env)["LoggingWrapper"]
-    x_raw, y_raw = hist["steps"], hist["discounted_reward"]
+    x_raw, y_raw = hist["steps"], hist["reward"]
     dx = x[2] - x[1]
     y = zeros(length(x))
     for i in eachindex(x)

@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.2"
+julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "6537b1ea8528cab989496edf871243c83c2efa4a"
+project_hash = "682d26092e131b74eb0e0b10ff8c6b806f05f011"
 
 [[deps.ARDESPOT]]
 deps = ["BasicPOMCP", "BeliefUpdaters", "CPUTime", "D3Trees", "POMDPModelTools", "POMDPs", "Parameters", "ParticleFilters", "Printf", "Random"]

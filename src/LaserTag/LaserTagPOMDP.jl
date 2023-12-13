@@ -134,6 +134,28 @@ function POMDPs.reward(m::LaserTagPOMDP, s, a)
     return r
 end
 
+function POMDPs.gen(m::LaserTagPOMDP{SVector{2, Int64}},s::LTState,a::Symbol,rng::AbstractRNG)
+
+    curr_robot = s.robot
+    curr_target = s.target
+
+    #Move Robot
+    new_robot = move_robot(m,curr_robot,a)
+
+    #Move Target
+    T_target = target_transition_likelihood(m,curr_robot,new_robot,curr_target)
+    new_target = rand(rng, T_target)
+
+    #Get Observation
+    Z_target = observation_likelihood(m,a,new_robot,new_target)
+    O = rand(rng,Z_target)
+
+    new_state = LTState(new_robot,new_target)
+    r = reward(m,s,a,new_state)
+
+    return (sp = new_state,o=O,r=r)
+end
+
 #=
 include("LaserTagModule.jl")
 using .LaserTag
@@ -157,10 +179,11 @@ using ProgressMeter
 using Random
 using Statistics
 sim_rng = MersenneTwister(21)
-n_episodes = 1000
+n_episodes = 100
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
 up = updater(policy);
+# up = BootstrapFilter(d, 100, MersenneTwister(abs(rand(Int8))));
 @showprogress for i in 1:n_episodes
     ro = RolloutSimulator(max_steps=max_steps, rng=sim_rng)
     returns[i] = simulate(ro, d, policy, up)
@@ -170,46 +193,98 @@ std(returns)/sqrt(n_episodes)
 
 
 using ARDESPOT
-
-lower_discrete = DefaultPolicyLB(solve(QMDPSolver(), d));
+using ParticleFilters
+lower_discrete = DefaultPolicyLB(solve(QMDPSolver(max_iterations=30,belres=1e-3,verbose=true), d));
 function upper_discrete(m, b)
     dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
     closing_steps = div(dist, 2)
     if closing_steps > 1
-        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
+        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 110.0*discount(m)^(closing_steps-1)
     else
-        return 100.0
+        return 110.0
     end
 end
 
 solver_discrete = DESPOTSolver(
     bounds = IndependentBounds(lower_discrete, upper_discrete, check_terminal=true, consistency_fix_thresh=0.1),
-    K = 50,
+    K = 100,
     T_max = 0.5,
+    # max_trials=20,
+    tree_in_info=true,
     default_action = :measure
 );
 
 planner_discrete = solve(solver_discrete, d);
 a = action(planner_discrete,b)
 
-import POMDPSimulators:RolloutSimulator
+import POMDPSimulators:RolloutSimulator,HistoryRecorder
 import BeliefUpdaters:DiscreteUpdater
-using ParticleFilters
 using ProgressMeter
 using Random
 using Statistics
 sim_rng = MersenneTwister(2)
-n_episodes = 500
+n_episodes = 10
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
-despot_pomdp = DiscreteLaserTagPOMDP();
+despot_pomdp = d;
 up = DiscreteUpdater(despot_pomdp);
+# up = BootstrapFilter(despot_pomdp, 100, MersenneTwister(abs(rand(Int8))));
 @showprogress for i in 1:n_episodes
     ro = RolloutSimulator(max_steps=max_steps, rng=sim_rng)
     returns[i] = simulate(ro, despot_pomdp, planner_discrete, up)
 end
 mean(returns)
 sqrt(var(returns))/sqrt(n_episodes)
+
+
+grid_b = h.state.belief_target
+T_states = LTState[]
+T_states_p = Float64[]
+for i in 1:d.size[1]
+    for j in 1:d.size[2]
+        sts = LTState( d.robot_init, SVector(i,j) )
+        push!(T_states,sts)
+        push!(T_states_p,grid_b[i,j])
+    end
+end
+b = SparseCat(T_states,T_states_p)
+
+
+hr = HistoryRecorder(max_steps=100)
+h = simulate(hr, d, planner_discrete, up);
+
+robot_states = SVector[]
+target_states = SVector[]
+robot_actions = []
+belief_states = Matrix{Float64}[]
+
+#For DiscreteUpdater
+for e in 1:length(h.hist)
+    s = h.hist[e].s
+    b = h.hist[e].b
+    push!(robot_states,s.robot)
+    push!(target_states,s.target)
+    push!(robot_actions,h.hist[e].a)
+    matr = zeros(d.size[1],d.size[2])
+    for i in 1:length(b.b)
+        bs = b.state_list[i]
+        if(bs.robot == s.robot)
+            prob = b.b[i]
+            matr[bs.target...] = prob
+        end
+    end
+    push!(belief_states,matr)
+end
+
+#For BootstrapFilter Updater
+for e in 1:length(h.hist)
+    s = h.hist[e].s
+    push!(robot_states,s.robot)
+    push!(target_states,s.target)
+    push!(robot_actions,h.hist[e].a)
+    push!(belief_states,h.hist[e].b.particles)
+end
+
 
 =#
 
@@ -281,21 +356,23 @@ using POMDPs
 using ARDESPOT
 
 c = ContinuousLaserTagPOMDP();
+lower_continuous = DefaultPolicyLB(RandomPolicy(c));
 function upper_continuous(m, b::ScenarioBelief)
     dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
     closing_steps = div(dist, 2)
     if closing_steps > 1
-        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 100.0*discount(m)^(closing_steps-1)
+        return -sum(1*discount(m)^t for t in 0:closing_steps-2) + 110.0*discount(m)^(closing_steps-1)
     else
-        return 100.0
+        return 110.0
     end
 end
 
 solver_continuous = DESPOTSolver(
-    bounds = IndependentBounds(DefaultPolicyLB(RandomPolicy(c)), upper_continuous, check_terminal=true, consistency_fix_thresh=0.1),
+    bounds = IndependentBounds(lower_continuous, upper_continuous, check_terminal=true, consistency_fix_thresh=0.1),
     K = 100,
-    D = 20,
     T_max = 0.5,
+    # max_trials = 20,
+    tree_in_info=true,
     default_action=:measure
 )
 planner_continuous = solve(solver_continuous, c);
@@ -309,7 +386,7 @@ using ProgressMeter
 using Random
 using Statistics
 sim_rng = MersenneTwister(2)
-n_episodes = 50
+n_episodes = 10
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
 despot_pomdp = c;

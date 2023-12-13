@@ -65,7 +65,7 @@ end
 
 function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
     s = wrap.env.state
-    o1 = Box(Float32, 2*length(s.robot_pos))
+    o1 = Box(Float32, length(s.robot_pos))
     o2 = Box(Float32, (2, length(s.belief_target.collection.particles) ))
     TupleSpace(o1, o2)
 end
@@ -73,9 +73,11 @@ function RL.observe(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
     s = wrap.env.state
     pos = convert(AbstractArray{Float32}, s.robot_pos)
     belief = convert(AbstractArray{Float32}, stack(s.belief_target.collection.particles))
-    mu = mean(belief; dims=2)
-    o1 = [vec(pos) ./ wrap.env.size; vec(mu) ./ wrap.env.size] 
-    o2 = belief .- mu
+    # mu = mean(belief; dims=2)
+    # o1 = [vec(pos) ./ wrap.env.size; vec(mu) ./ wrap.env.size] 
+    o1 = vec(pos) ./ wrap.env.size
+    # o2 = (belief .- mu) ./ wrap.env.size
+    o2 = belief ./ wrap.env.size
     return (o1, o2)
 end
 
@@ -93,14 +95,23 @@ RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower
 RL.act!(::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"
 RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractArray, <:AbstractArray}) = act!(wrap, (vec(a[1]),a[2][]))
 function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractVector, <:Integer})
+    a_c, a_d = a
+
+    if length(a_c) == 1
+        x = cos(pi*a_c[])
+        y = sin(pi*a_c[])
+        a_c = [x,y] ./ max(abs(x), abs(y))
+    end
+
     wrap.steps += 1
-    if a[2] == 1
+    if a_d == 1
         r = act!(wrap.env, :measure)
     else
-        r = act!(wrap.env, a[1])
+        r = act!(wrap.env, a_c)
     end
     r * convert(typeof(r), wrap.reward_scale)
 end
+
 
 # RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0], upper=[1f0]), Discrete(2))
 # RL.act!(::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"
@@ -148,7 +159,7 @@ function evaluate(test_env, ac; discount=0.997)
     r = 0.0
     for t in 1:1000
         s = observe(test_env)
-        a = ac(s)
+        a = get_actionvalue(ac, Algorithms.ACInput(observation = s))[1].action
         r += act!(test_env, a) * discount ^ (t-1)
         terminated(test_env) && break
     end
@@ -156,3 +167,25 @@ function evaluate(test_env, ac; discount=0.997)
 end
 
 
+function get_mean(env, x; k=1)
+    hist = get_info(env)["LoggingWrapper"]
+    x_raw, y_raw = hist["steps"], hist["reward"]
+    dx = x[2] - x[1]
+    y = zeros(length(x))
+    for i in eachindex(x)
+        y_tmp = y_raw[(x[i]-dx*(1/2+k)) .≤ x_raw .≤ (x[i]+dx*(1/2+k))]
+        y[i] = mean(y_tmp)
+    end
+    y
+end
+
+plot_seed_ci(solver_vec; args...) = plot_seed_ci!(plot(), solver_vec; args...)
+function plot_seed_ci!(p, solver_vec; xmax=1_000_000, Nx=200, c=1, label=false, plotargs...)
+    x = range(0, xmax, Nx)
+    y_mat = stack([get_mean(solver.env, x; k=1) for solver in solver_vec])
+    y = mean(y_mat; dims=2)
+    dy = 1.96 * std(y_mat; dims=2) / sqrt(size(y_mat,2))
+    plot!(p, x, y-dy; fillrange=y+dy, fillalpha=0.3, c, alpha=0, label=false)
+    plot!(p, x, y; label, c, plotargs...)
+    p
+end

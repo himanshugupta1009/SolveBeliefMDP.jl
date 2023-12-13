@@ -2,7 +2,7 @@
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "d0d82d4fac6de51f8c84fde6db641c30e714f23a"
+project_hash = "3723ff33e9236529af774efd663f5674af62b20d"
 
 [[deps.ARDESPOT]]
 deps = ["BasicPOMCP", "BeliefUpdaters", "CPUTime", "D3Trees", "POMDPModelTools", "POMDPs", "Parameters", "ParticleFilters", "Printf", "Random"]
@@ -1373,7 +1373,9 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.RLAlgorithms]]
 deps = ["CUDA", "ChainRules", "CommonRLInterface", "Distributions", "Flux", "LinearAlgebra", "Parameters", "ProgressMeter", "Random", "Reexport", "StaticArrays", "Statistics", "Tricks", "cuDNN"]
-path = "C:\\Users\\geekj\\.julia\\dev\\RLAlgorithms"
+git-tree-sha1 = "332a3b29e522311a3854903656c3833954625ca8"
+repo-rev = "main"
+repo-url = "https://github.com/the-one-and-only-jackson/RLAlgorithms.jl"
 uuid = "346a53a9-6fe4-477e-bca6-f212bdefdafc"
 version = "0.1.0"
 

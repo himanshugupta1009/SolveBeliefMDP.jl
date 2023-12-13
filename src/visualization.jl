@@ -36,8 +36,8 @@ function plot_lasertag(m::LaserTagPOMDP, robot, target, belief)
         # axis=([],true),
         axis=true,
         gridalpha=1.0,
-        xlims=(1,16),
-        ylims=(1,16),
+        xlims=(1,n_x+1),
+        ylims=(1,n_y+1),
         xticks=[1:1:2*(n_x+5)...],
         yticks=[1:1:2*(n_y+5)...],
         size=(p_size,p_size)

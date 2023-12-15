@@ -9,6 +9,7 @@ using Statistics
 
 #=
 Case 1 (Discrete and Exact) - QMDP evaluation
+29.955907670303286 (+/-) 6.230667969873513
 =#
 using QMDP
 import POMDPSimulators:RolloutSimulator, stepthrough
@@ -41,7 +42,7 @@ solver = QMDPSolver(max_iterations=20,belres=1e-3,verbose=true)
 qmdp_policy = solve(solver, d);
 sim_rng = MersenneTwister( abs(rand(Int8)) )
 # sim_rng = MersenneTwister(221)
-n_episodes = 100
+n_episodes = 10
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
 qmdp_pomdp = d;
@@ -73,6 +74,8 @@ are not possible to solve with QMDP
 #=
 Case 1 (Discrete and Exact) - ARDESPOT evaluation
 64.96516429394714 (+/-) 5.566928834587658
+
+69.92835614757446 (+/-) 2.1105325338202117
 =#
 
 using ARDESPOT
@@ -102,7 +105,7 @@ solver_discrete = DESPOTSolver(
 despot_planner_discrete = solve(solver_discrete, d);
 sim_rng = MersenneTwister( abs(rand(Int8)) )
 # sim_rng = MersenneTwister(221)
-n_episodes = 10
+n_episodes = 100
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
 despot_pomdp = d;
@@ -147,7 +150,7 @@ solver_discrete = DESPOTSolver(
 despot_planner_discrete = solve(solver_discrete, d);
 sim_rng = MersenneTwister( abs(rand(Int8)) )
 # sim_rng = MersenneTwister(221)
-n_episodes = 10
+n_episodes = 100
 max_steps = 100
 returns = Vector{Union{Float64,Missing}}(missing, n_episodes);
 despot_pomdp = d;
@@ -157,6 +160,7 @@ pf_up = BootstrapFilter(despot_pomdp, 100, MersenneTwister(abs(rand(Int8))));
     returns[i] = simulate(ro, despot_pomdp, despot_planner_discrete, pf_up)
 end
 println( mean(returns), " (+/-) ", std(returns)/sqrt(n_episodes) )
+
 #=
 hr = HistoryRecorder(max_steps=100)
 h = simulate(hr, despot_pomdp, despot_planner_discrete, pf_up);
@@ -229,6 +233,9 @@ import BeliefUpdaters:DiscreteUpdater
 
 c = ContinuousLaserTagPOMDP();
 lower_continuous = DefaultPolicyLB(RandomPolicy(c));
+# function lower_continuous(m, b::ScenarioBelief)
+#     return 0.0
+# end
 function upper_continuous(m, b::ScenarioBelief)
     dist = minimum(sum(abs, s.robot-s.target) for s in particles(b))
     closing_steps = div(dist, 2)

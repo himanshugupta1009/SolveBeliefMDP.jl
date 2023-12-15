@@ -7,30 +7,6 @@ const RL = CommonRLInterface
 
 include("mgf.jl")
 
-CIplot(xdata, ydata; args...) = CIplot!(plot(), xdata, ydata; args...)
-function CIplot!(p, xdata, ydata; Nx=500, z=1.96, k=5, c=1, label=false, plotargs...)
-    dx = (maximum(xdata)-minimum(xdata))/Nx
-    x = (minimum(xdata) + dx/2) .+ dx*(0:Nx-1)
-    y = zeros(Nx)
-    dy = zeros(Nx)
-    for i in eachindex(x)
-        y_tmp = ydata[(x[i]-dx*(1/2+k)) .≤ xdata .≤ (x[i]+dx*(1/2+k))]
-        y[i] = mean(y_tmp)
-        dy[i] = z*std(y_tmp)/sqrt(length(y_tmp))
-    end
-    plot!(p, x, y-dy; fillrange=y+dy, fillalpha=0.3, c, alpha=0, label=false)
-    plot!(p, x, y; c, label, plotargs...)
-    return p
-end
-
-function plot_LoggingWrapper(env)
-    hist = get_info(env)["LoggingWrapper"]
-    p1 = CIplot(hist["steps"], hist["reward"], label="Undiscounted", c=1, title="Episodic Reward", ylims=(-200,100))
-    CIplot!(p1, hist["steps"], hist["discounted_reward"], label="Discounted", c=2, legend=:bottomright)
-    p2 = CIplot(hist["steps"], hist["episode_length"]; title="Episode Length", xlabel="Steps", ylims=(0,300))
-    plot(p1, p2; layout=(2,1))    
-end
-
 @kwdef mutable struct LaserTagWrapper{T<:LaserTagBeliefMDP} <: Wrappers.AbstractWrapper
     const env::T # = DiscreteLaserTagBeliefMDP(), = ContinuousLaserTagBeliefMDP
     const max_steps::Int = 500
@@ -47,7 +23,6 @@ function RL.reset!(wrap::LaserTagWrapper)
     reset!(wrap.env)
 end
 
-
 function RL.observations(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     s = wrap.env.state
     o1 = Box(Float32, size(s.robot_pos))
@@ -62,6 +37,22 @@ function RL.observe(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     o2 = @. max(0, 1+log10(belief)/3)
     return (o1, o2)
 end
+function RL.observe(v_env::VecEnv{<:LaserTagWrapper{<:ExactBeliefLaserTag}})
+    sz = v_env.envs[1].env.size
+
+    pos = stack(v_env.envs) do wrap
+        state = wrap.env.state
+        convert(AbstractArray{Float32}, state.robot_pos)
+    end ./ sz
+
+    belief = stack(v_env.envs) do wrap
+        state = wrap.env.state
+        convert(AbstractArray{Float32}, reinterpret(reshape, Int, state.belief_target))
+    end
+    @. belief = max(0, 1+log10(belief)/3)
+
+    return (pos, belief)
+end
 
 function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
     s = wrap.env.state
@@ -69,16 +60,33 @@ function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
     o2 = Box(Float32, (2, length(s.belief_target.collection.particles) ))
     TupleSpace(o1, o2)
 end
-function RL.observe(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
-    s = wrap.env.state
-    pos = convert(AbstractArray{Float32}, s.robot_pos)
-    belief = convert(AbstractArray{Float32}, stack(s.belief_target.collection.particles))
-    # mu = mean(belief; dims=2)
-    # o1 = [vec(pos) ./ wrap.env.size; vec(mu) ./ wrap.env.size] 
-    o1 = vec(pos) ./ wrap.env.size
-    # o2 = (belief .- mu) ./ wrap.env.size
-    o2 = belief ./ wrap.env.size
-    return (o1, o2)
+function RL.observe(v_env::VecEnv{<:LaserTagWrapper{<:ParticleBeliefLaserTag}})
+    sz = v_env.envs[1].env.size
+
+    pos = stack(v_env.envs) do wrap
+        robot_pos = wrap.env.state.robot_pos
+        convert(AbstractArray{Float32}, robot_pos)
+    end ./ sz
+
+    belief = stack(v_env.envs) do wrap
+        particles = wrap.env.state.belief_target.collection.particles
+        particle_arr = reinterpret(reshape, Int, particles)
+        convert(AbstractArray{Float32}, particle_arr)
+    end ./ sz
+
+    return (pos, belief)
+end
+function RL.observe(env::LaserTagWrapper{<:ParticleBeliefLaserTag})
+    sz = env.env.size
+
+    robot_pos = env.env.state.robot_pos
+    pos = convert(AbstractArray{Float32}, robot_pos) ./ sz
+
+    particles = env.env.state.belief_target.collection.particles
+    particle_arr = reinterpret(reshape, Int, particles)
+    belief = convert(AbstractArray{Float32}, particle_arr) ./ sz
+
+    return (pos, belief)
 end
 
 RL.actions(wrap::LaserTagWrapper{<:DiscreteActionLaserTag}) = Discrete(length(actions(wrap.env)))
@@ -92,6 +100,8 @@ function RL.act!(wrap::LaserTagWrapper{<:DiscreteActionLaserTag}, a::Integer)
 end
 
 RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0, -1f0], upper=[1f0, 1f0]), Discrete(2))
+# RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0], upper=[1f0]), Discrete(2))
+
 RL.act!(::LaserTagWrapper{<:ContinuousActionLaserTag}, a) = @assert false "action type error"
 RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractArray, <:AbstractArray}) = act!(wrap, (vec(a[1]),a[2][]))
 function RL.act!(wrap::LaserTagWrapper{<:ContinuousActionLaserTag}, a::Tuple{<:AbstractVector, <:Integer})
@@ -169,7 +179,7 @@ end
 
 function get_mean(env, x; k=1)
     hist = get_info(env)["LoggingWrapper"]
-    x_raw, y_raw = hist["steps"], hist["reward"]
+    x_raw, y_raw = hist["steps"], hist["discounted_reward"]
     dx = x[2] - x[1]
     y = zeros(length(x))
     for i in eachindex(x)
@@ -185,7 +195,32 @@ function plot_seed_ci!(p, solver_vec; xmax=1_000_000, Nx=200, c=1, label=false, 
     y_mat = stack([get_mean(solver.env, x; k=1) for solver in solver_vec])
     y = mean(y_mat; dims=2)
     dy = 1.96 * std(y_mat; dims=2) / sqrt(size(y_mat,2))
+    println("$(y[end]) +/- $(dy[end])")
     plot!(p, x, y-dy; fillrange=y+dy, fillalpha=0.3, c, alpha=0, label=false)
     plot!(p, x, y; label, c, plotargs...)
     p
+end
+
+CIplot(xdata, ydata; args...) = CIplot!(plot(), xdata, ydata; args...)
+function CIplot!(p, xdata, ydata; Nx=500, z=1.96, k=5, c=1, label=false, plotargs...)
+    dx = (maximum(xdata)-minimum(xdata))/Nx
+    x = (minimum(xdata) + dx/2) .+ dx*(0:Nx-1)
+    y = zeros(Nx)
+    dy = zeros(Nx)
+    for i in eachindex(x)
+        y_tmp = ydata[(x[i]-dx*(1/2+k)) .≤ xdata .≤ (x[i]+dx*(1/2+k))]
+        y[i] = mean(y_tmp)
+        dy[i] = z*std(y_tmp)/sqrt(length(y_tmp))
+    end
+    plot!(p, x, y-dy; fillrange=y+dy, fillalpha=0.3, c, alpha=0, label=false)
+    plot!(p, x, y; c, label, plotargs...)
+    return p
+end
+
+function plot_LoggingWrapper(env)
+    hist = get_info(env)["LoggingWrapper"]
+    p1 = CIplot(hist["steps"], hist["reward"], label="Undiscounted", c=1, title="Episodic Reward", ylims=(-200,100))
+    CIplot!(p1, hist["steps"], hist["discounted_reward"], label="Discounted", c=2, legend=:bottomright)
+    p2 = CIplot(hist["steps"], hist["episode_length"]; title="Episode Length", xlabel="Steps", ylims=(0,300))
+    plot(p1, p2; layout=(2,1))    
 end

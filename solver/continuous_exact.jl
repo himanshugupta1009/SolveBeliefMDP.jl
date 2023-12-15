@@ -29,7 +29,7 @@ function continuous_exact_animation(ac)
         a = (a_d[i][] == 1) ? "measure" : round.(Float64.(vec(a_c[i]*180)), digits=2)
         plot!(; title = "a = $a, t = $i") #, action = $(actions(LaserTagBeliefMDP())[a_vec[i][]])")
     end
-    gif(anim, fps = 2)
+    gif(anim, fps = 1)
 end
 
 continuous_exact_animation(solver.ac)
@@ -48,13 +48,9 @@ function plot_continuous!(p, env)
     plot!(p, 0.5 .+ obs[1,:], 0.5 .+ obs[2,:]; markershape=:x, common...)
 end
 
-RL.actions(::LaserTagWrapper{<:ContinuousActionLaserTag}) = TupleSpace(Box(lower=[-1f0], upper=[1f0]), Discrete(2))
-
-
-env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=500)
-
 # 732, 1_000, 935, 1500
 # 4-d, 8-d, 1-d c, 2-d c
+env = LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=500)
 a_vec = [[1.,0.], [-1.,0.], [0.,1.], [0.,-1.], [1.,1.], [1.,-1.], [-1.,-1.], [-1.,1.]]
 function rand_step(env)
     steps = 0
@@ -72,65 +68,98 @@ mean(rand_step(env) for _ in 1:100)
 plot_continuous(env)
 
 
-
-steps = 0
-while !terminated(env)
-    observe(env)
-    act!(env, (2*rand(Float32,1) .- 1, rand(1:2)) )
-    steps += 1
-end
-steps
-
-# This code should take ~3 minutes to run (plus precompile time)
-for (file, discount) in zip(["solver/data/continuous_exact_10_99.bson", "solver/data/continuous_exact_10_997.bson"], [0.99, 0.997])
-    solver_vec = PPOSolver[]
-    for _ in 1:10
-        solver = PPOSolver(; 
-            env = LoggingWrapper(; discount, 
-                env = VecEnv(n_envs=8) do 
-                    LaserTagWrapper(
-                        env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000
-                    )
-                end
-            ),
-            discount, 
-            n_steps = 10_000_000,
-            traj_len = 512,
-            batch_size = 256,
-            n_epochs = 4,
-            kl_targ = 0.02,
-            clipl2 = Inf32,
-            ent_coef = (0.01f0, 0.01f0),
-            lr_decay = true,
-            lr = 3e-4,
-            vf_coef = 1.0,
-            gae_lambda = 0.95,
-            burnin_steps = 0,
-            ac_kwargs = (
-                critic_dims = [256,256], 
-                actor_dims  = [64,64], 
-                shared_actor_dims  = [], 
-                critic_type = (:scalar, :categorical)[1], 
-                categorical_values = range(symlog(-2/(1-discount)), symlog(100), 300),
-                critic_loss_transform = symlog,
-                inv_critic_loss_transform = symexp,
-                shared = Parallel(
-                    vcat,
-                    identity,
-                    Chain(
-                        x->reshape(x,10,7,:),
-                        Flux.flatten
-                    )
-                ),
-                squash = true,
-                sde=true
+discount = 0.997
+solver = PPOSolver(; 
+    env = LoggingWrapper(; discount, 
+        env = VecEnv(n_envs=32) do 
+            LaserTagWrapper(
+                env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000
             )
+        end
+    ),
+    discount, 
+    n_steps = 5_000_000,
+    traj_len = 512,
+    batch_size = 512,
+    n_epochs = 4,
+    kl_targ = 0.02,
+    clipl2 = 2.,
+    ent_coef = 0.01f0,
+    lr_decay = false,
+    lr = 3e-4,
+    vf_coef = 1.0,
+    gae_lambda = 1.0,
+    burnin_steps = 0,
+    ac_kwargs = (
+        critic_dims = [256,256], 
+        actor_dims  = [64,64], 
+        critic_type = :scalar, 
+        critic_loss_transform = x -> (x .- 50) ./ 50,
+        inv_critic_loss_transform = x -> x .* 50 .+ 50,
+        shared = Parallel(vcat, identity, x -> reshape(x,70,:)),
+        squash = true,
+        sde = true
+    ),
+)
+ac, info_log = solve(solver)
+
+solver_vec = PPOSolver[]
+for _ in 1:3
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=32) do 
+                LaserTagWrapper(env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000)
+            end
+        ),
+        discount, 
+        n_steps = 5_000_000,
+        traj_len = 512,
+        batch_size = 512,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = 2.,
+        ent_coef = 0.02f0, 
+        lr_decay = true,
+        lr = 3e-4,
+        vf_coef = 1.0,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [64,64], 
+            critic_type = :scalar, 
+            critic_loss_transform = x -> (x .- 50) ./ 50,
+            inv_critic_loss_transform = x -> x .* 50 .+ 50,
+            shared = Parallel(vcat, identity, x -> reshape(x,70,:)),
+            squash = true,
+            sde = true    
         )
-        push!(solver_vec, solver)
-        ac, info_log = solve(solver)
-    end
-    bson(file, Dict(:solver_vec=>solver_vec))
+    )
+    push!(solver_vec, solver)
+    ac, info_log = solve(solver)
 end
+BSON.bson("solver/data/continuous_exact_final.bson", Dict(:solver_vec=>solver_vec))
+
+
+x = range(0, solver.n_steps, 500)
+y = get_mean(solver.env, x)
+plot(x,y; label=nothing, xlims=(0,solver.n_steps), ylims=(-100,100), yticks=-100:10:100, right_margin = 0.5Plots.cm)
+
+bson("solver/data/continuous_exact_50.bson", Dict(:ac=>solver.ac, :env=>solver.env, :info=>info_log))
+
+env = LaserTagWrapper(
+    env=ContinuousLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000
+)
+
+continuous_exact_animation(ac)
+
+evaluate(env,ac)
+
+plot(info_log[:unexplained_variance]...; label=false, ylims=(0,1))
+plot(info_log[:l2_norm]...; label=false, ylims=(0,maximum(info_log[:l2_norm][2])))
+plot(info_log[:kl_est]...; label=false)
+plot(info_log[:value_loss]...; label=false)
+plot(info_log[:entropy]...; label=false)
 
 
 p = plot(title="Continuous - Exact Belief - 1D Action", right_margin = 0.5Plots.cm,

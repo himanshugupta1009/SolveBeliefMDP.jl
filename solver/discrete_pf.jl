@@ -39,40 +39,47 @@ function discrete_pf_animation(ac, test_env = LaserTagWrapper(env=DiscreteLaserT
     gif(anim, fps = 1)
 end
 
-function RL.observations(wrap::LaserTagWrapper{<:ParticleBeliefLaserTag})
-    s = wrap.env.state
-    o1 = Box(Float32, length(s.robot_pos))
-    o2 = Box(Float32, (2, length(s.belief_target.collection.particles) ))
-    TupleSpace(o1, o2)
+solver_vec = PPOSolver[]
+for _ in 1:3
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=32) do 
+                LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=100), reward_scale=1., max_steps=2_000)
+            end
+        ),
+        discount, 
+        n_steps = 5_000_000,
+        traj_len = 512,
+        batch_size = 512,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = 2.,
+        ent_coef = 0.02f0, 
+        lr_decay = true,
+        lr = 3e-4,
+        vf_coef = 1.0,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [64,64], 
+            critic_type = :scalar, 
+            critic_loss_transform = x -> (x .- 50) ./ 50,
+            inv_critic_loss_transform = x -> x .* 50 .+ 50,
+            shared = Parallel(
+                vcat,
+                identity,
+                MGF(init=randn(Float32, 64, 2)/10)
+            ),
+            squash = true,
+            sde = true    
+        )
+    )
+    push!(solver_vec, solver)
+    ac, info_log = solve(solver)
 end
-function RL.observe(v_env::VecEnv{<:LaserTagWrapper{<:ParticleBeliefLaserTag}})
-    sz = v_env.envs[1].env.size
+BSON.bson("solver/data/discrete_pf_final.bson", Dict(:solver_vec=>solver_vec))
 
-    pos = stack(v_env.envs) do wrap
-        robot_pos = wrap.env.state.robot_pos
-        convert(AbstractArray{Float32}, robot_pos)
-    end ./ sz
-
-    belief = stack(v_env.envs) do wrap
-        particles = wrap.env.state.belief_target.collection.particles
-        particle_arr = reinterpret(reshape, Int, particles)
-        convert(AbstractArray{Float32}, particle_arr)
-    end ./ sz
-
-    return (pos, belief)
-end
-function RL.observe(env::LaserTagWrapper{<:ParticleBeliefLaserTag})
-    sz = env.env.size
-
-    robot_pos = env.env.state.robot_pos
-    pos = convert(AbstractArray{Float32}, robot_pos) ./ sz
-
-    particles = env.env.state.belief_target.collection.particles
-    particle_arr = reinterpret(reshape, Int, particles)
-    belief = convert(AbstractArray{Float32}, particle_arr) ./ sz
-
-    return (pos, belief)
-end
 
 
 solver_vec = PPOSolver[]
@@ -173,8 +180,11 @@ plot!(init[:,1]', init[:,2]'; seriestype=:scatter, markercolor=:red, markershape
 
 
 
+discrete_pf_solver_vec = BSON.load("solver/data/discrete_pf_final.bson")[:solver_vec]
 
-ac = solver_vec[1].ac
+
+
+ac = discrete_pf_solver_vec[1].ac
 
 n_particles = [5, 10, 50, 100, 500, 1000]
 vals = zeros(length(n_particles))
@@ -182,17 +192,18 @@ errs = zeros(length(n_particles))
 for i in 1:length(n_particles)
     println(i)
     test_env = LaserTagWrapper(env=DiscreteLaserTagPFBeliefMDP(num_particles=n_particles[i]))
-    results = [evaluate(test_env, ac) for _ in 1:1000]
+    results = [evaluate(test_env, ac) for _ in 1:100]
     vals[i] = mean(results)
     errs[i] = std(results)/sqrt(length(results))
 end
+
 
 plot(
     n_particles,vals; 
     title="Test Time Accuracy of Agent Trained on 100 Particles",
     yerror=errs, xaxis=:log, label=false, xlabel="Number of Particles at Test time", ylabel="Returns", 
     xticks=(n_particles, string.(n_particles)), xlims=(3,2_000),
-    ylims=(-50,100), yticks=-50:25:100,
+    ylims=(-75,75), yticks=-75:25:75,
     right_margin = 0.5Plots.cm
 )
 savefig("mgf_particles_test_comparison.png")

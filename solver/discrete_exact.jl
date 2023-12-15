@@ -36,16 +36,16 @@ end
 function RL.observations(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     s = wrap.env.state
     o1 = Box(Float32, size(s.robot_pos))
-    # o2 = Box(Float32, size(s.belief_target))
-    # TupleSpace(o1, o2)
+    o2 = Box(Float32, size(s.belief_target))
+    TupleSpace(o1, o2)
 end
 function RL.observe(wrap::LaserTagWrapper{<:ExactBeliefLaserTag})
     s = wrap.env.state
     pos = convert(AbstractArray{Float32}, s.robot_pos)
-    # belief = convert(AbstractArray{Float32}, s.belief_target)
+    belief = convert(AbstractArray{Float32}, s.belief_target)
     o1 = pos ./ wrap.env.size
-    # o2 = @. max(0, 1+log10(belief)/3)
-    # return (o1, o2)
+    o2 = @. max(0, 1+log10(belief)/3)
+    return (o1, o2)
 end
 
 # This code should take ~3 minutes to run (plus precompile time)
@@ -72,43 +72,69 @@ markershape=:x, label=false, seriestype=:scatter, markercolor=:black, markersize
 xticks=1:16, yticks=1:16, xlims=(1,16), ylims=(1,16))
 mean(test_rand(env) for _ in 1:100)
 
-solver = PPOSolver(; 
-    env = LoggingWrapper(; discount, 
-        env = VecEnv(n_envs=8) do 
-            LaserTagWrapper(env=DiscreteLaserTagBeliefMDP(size=(15, 15), n_obstacles=30), reward_scale=1., max_steps=1_000)
-        end
-    ),
-    discount, 
-    n_steps = 5_000_000,
-    traj_len = 512,
-    batch_size = 256,
-    n_epochs = 4,
-    kl_targ = 0.02,
-    clipl2 = Inf32,
-    ent_coef = 0.01f0, 
-    lr_decay = true,
-    lr = 1e-3,
-    vf_coef = 1.0,
-    gae_lambda = 0.95,
-    burnin_steps = 0,
-    ac_kwargs = (
-        critic_dims = [64,64], 
-        actor_dims  = [64,64], 
-        critic_type = (:scalar, :categorical)[1], 
-        categorical_values = range(symlog(-2/(1-discount)), symlog(100), 400),
-        critic_loss_transform = symlog,
-        inv_critic_loss_transform = symexp,
-        # shared = Parallel(
-        #     vcat,
-        #     identity,
-        #     Chain(
-        #         x->reshape(x,10,7,:),
-        #         Flux.flatten
-        #     )
-        # )
+solver_vec = PPOSolver[]
+for _ in 1:3
+    solver = PPOSolver(; 
+        env = LoggingWrapper(; discount, 
+            env = VecEnv(n_envs=32) do 
+                LaserTagWrapper(env=DiscreteLaserTagBeliefMDP(), reward_scale=1., max_steps=2_000)
+            end
+        ),
+        discount, 
+        n_steps = 5_000_000,
+        traj_len = 512,
+        batch_size = 512,
+        n_epochs = 4,
+        kl_targ = 0.02,
+        clipl2 = 2.,
+        ent_coef = 0.02f0, 
+        lr_decay = true,
+        lr = 3e-4,
+        vf_coef = 1.0,
+        gae_lambda = 0.95,
+        burnin_steps = 0,
+        ac_kwargs = (
+            critic_dims = [64,64], 
+            actor_dims  = [64,64], 
+            critic_type = :scalar, 
+            critic_loss_transform = x -> (x .- 50) ./ 50,
+            inv_critic_loss_transform = x -> x .* 50 .+ 50,
+            shared = Parallel(vcat, identity, x -> reshape(x,70,:)),
+        )
     )
+    push!(solver_vec, solver)
+    ac, info_log = solve(solver)
+end
+
+BSON.bson("solver/data/discrete_exact_final.bson", Dict(:solver_vec=>solver_vec))
+
+discrete_exact_solver_vec = BSON.load("solver/data/discrete_exact_final.bson")[:solver_vec]
+continuous_exact_solver_vec = BSON.load("solver/data/continuous_exact_final.bson")[:solver_vec]
+discrete_pf_solver_vec = BSON.load("solver/data/discrete_pf_final.bson")[:solver_vec]
+continuous_pf_solver_vec = BSON.load("solver/data/continuous_pf_final.bson")[:solver_vec]
+
+
+final_plot = plot(;
+    xlabel="Steps", xlims=(0,5e6),
+    ylabel="Discounted Reward", ylims=(-900,100), yticks=-900:100:100,
+    title="PPO Learning Curves",
+    right_margin = 0.5Plots.cm
 )
-ac, info_log = solve(solver)
+plot_seed_ci!(final_plot, discrete_exact_solver_vec; 
+    xmax=5_000_000, Nx=500, label="Discrete / Exact", c=1
+)
+plot_seed_ci!(final_plot, continuous_exact_solver_vec; 
+    xmax=5_000_000, Nx=500, label="Continuous / Exact", c=2
+)
+plot_seed_ci!(final_plot, discrete_pf_solver_vec; 
+    xmax=5_000_000, Nx=500, label="Discrete / Particle", c=3
+)
+plot_seed_ci!(final_plot, continuous_pf_solver_vec; 
+    xmax=5_000_000, Nx=500, label="Continuous / Particle", c=4
+)
+plot!(ylims=(-200,100), yticks=-200:50:100, legend=:bottomright)
+savefig(final_plot, "final_learning_curve.png")
+
 
 x = range(0, 5_000_000, 500)
 y = get_mean(solver.env, x)

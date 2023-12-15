@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.3"
+julia_version = "1.9.0"
 manifest_format = "2.0"
 project_hash = "3723ff33e9236529af774efd663f5674af62b20d"
 
@@ -274,7 +274,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+0"
+version = "1.0.2+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -1266,7 +1266,7 @@ version = "0.42.2+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.9.2"
+version = "1.9.0"
 
 [[deps.PlotThemes]]
 deps = ["PlotUtils", "Statistics"]
@@ -1373,9 +1373,7 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.RLAlgorithms]]
 deps = ["CUDA", "ChainRules", "CommonRLInterface", "Distributions", "Flux", "LinearAlgebra", "Parameters", "ProgressMeter", "Random", "Reexport", "StaticArrays", "Statistics", "Tricks", "cuDNN"]
-git-tree-sha1 = "332a3b29e522311a3854903656c3833954625ca8"
-repo-rev = "main"
-repo-url = "https://github.com/the-one-and-only-jackson/RLAlgorithms.jl"
+path = "C:\\Users\\Jackson\\.julia\\dev\\RLAlgorithms"
 uuid = "346a53a9-6fe4-477e-bca6-f212bdefdafc"
 version = "0.1.0"
 
@@ -2006,7 +2004,7 @@ version = "0.15.1+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+0"
+version = "5.7.0+0"
 
 [[deps.libevdev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
